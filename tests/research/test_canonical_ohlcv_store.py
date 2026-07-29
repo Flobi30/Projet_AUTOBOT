@@ -176,6 +176,66 @@ def test_canonical_ohlcv_quarantines_naive_source_timestamp(tmp_path):
     assert quarantine[0]["reason"] == "naive_timestamp"
 
 
+@pytest.mark.parametrize(
+    ("field", "value", "reason"),
+    (
+        ("available_time", "2026-01-01T00:06:00", "naive_available_time"),
+        ("bar_close_time", "2026-01-01T00:05:00", "naive_bar_close_time"),
+        ("ingestion_time", "2026-01-01T00:07:00", "naive_ingestion_time"),
+    ),
+)
+def test_canonical_ohlcv_quarantines_naive_explicit_temporal_times(tmp_path, field, value, reason):
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    path = raw / "BTCZEUR_5m.csv"
+    path.write_text(
+        "timestamp,symbol,timeframe,open,high,low,close,volume," + field + "\n"
+        "2026-01-01T00:00:00+00:00,BTCZEUR,5m,100,101,99,100.5,1000," + value + "\n",
+        encoding="utf-8",
+    )
+
+    snapshot = build_canonical_ohlcv_snapshot(
+        CanonicalOHLCVConfig(
+            run_id=f"pytest_naive_{field}",
+            raw_paths=(raw,),
+            output_dir=tmp_path / "canonical" / "ohlcv",
+            manifest_dir=tmp_path / "manifests",
+            quarantine_dir=tmp_path / "quarantine",
+        )
+    )
+
+    assert snapshot.canonical_row_count == 0
+    quarantine = json.loads((tmp_path / "quarantine" / f"pytest_naive_{field}_quarantine.json").read_text(encoding="utf-8"))
+    assert quarantine[0]["reason"] == reason
+
+
+def test_canonical_ohlcv_preserves_explicit_aware_temporal_times(tmp_path):
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    path = raw / "BTCZEUR_5m.csv"
+    path.write_text(
+        "timestamp,symbol,timeframe,open,high,low,close,volume,available_time,bar_close_time,ingestion_time\n"
+        "2026-01-01T00:00:00+00:00,BTCZEUR,5m,100,101,99,100.5,1000,"
+        "2026-01-01T00:06:00+00:00,2026-01-01T00:05:00+00:00,2026-01-01T00:07:00+00:00\n",
+        encoding="utf-8",
+    )
+
+    snapshot = build_canonical_ohlcv_snapshot(
+        CanonicalOHLCVConfig(
+            run_id="pytest_aware_temporal_times",
+            raw_paths=(raw,),
+            output_dir=tmp_path / "canonical" / "ohlcv",
+            manifest_dir=tmp_path / "manifests",
+            quarantine_dir=tmp_path / "quarantine",
+        )
+    )
+
+    row = _read_rows(Path(snapshot.files[0].csv_path))[0]
+    assert row["available_time"] == "2026-01-01T00:06:00+00:00"
+    assert row["bar_close_time"] == "2026-01-01T00:05:00+00:00"
+    assert row["ingestion_time"] == "2026-01-01T00:07:00+00:00"
+
+
 def test_legacy_canonical_rows_adapt_without_faking_ingestion_time():
     legacy = {
         "exchange": "kraken",

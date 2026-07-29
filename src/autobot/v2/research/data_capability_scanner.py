@@ -68,7 +68,13 @@ class DataCapability:
     row_count: int = 0
     duplicate_count: int = 0
     gap_count: int = 0
+    # ``freshness_seconds`` is retained for callers of the existing contract,
+    # but now means the age of the last market event that was actually usable.
+    # Filesystem modification time remains diagnostic metadata only.
     freshness_seconds: float | None = None
+    event_freshness_seconds: float | None = None
+    artifact_age_seconds: float | None = None
+    last_available_time: str | None = None
     storage_size_bytes: int = 0
     quality_status: str = "missing"
     alpha_families_unlocked: tuple[str, ...] = ()
@@ -262,14 +268,15 @@ def render_data_capability_scan_report(report: DataCapabilityScanReport) -> str:
         "",
         "## Data Capabilities",
         "",
-        "| Capability | Available | Rows | Symbols | Timeframes | Start | End | Quality | Unlocks | Blockers |",
-        "| --- | ---: | ---: | --- | --- | --- | --- | --- | --- | --- |",
+        "| Capability | Available | Rows | Symbols | Timeframes | Start | End | Event freshness | Artifact age | Quality | Unlocks | Blockers |",
+        "| --- | ---: | ---: | --- | --- | --- | --- | ---: | ---: | --- | --- | --- |",
     ]
     for item in report.capabilities:
         lines.append(
             f"| `{item.capability_id}` | `{item.available}` | {item.row_count} | "
             f"{', '.join(item.symbols) or '-'} | {', '.join(item.timeframes) or '-'} | "
-            f"{item.start_at or '-'} | {item.end_at or '-'} | `{item.quality_status}` | "
+            f"{item.start_at or '-'} | {item.end_at or '-'} | {_format_age_seconds(item.event_freshness_seconds)} | "
+            f"{_format_age_seconds(item.artifact_age_seconds)} | `{item.quality_status}` | "
             f"{', '.join(item.alpha_families_unlocked) or '-'} | {', '.join(item.blockers) or 'none'} |"
         )
     lines.extend(["", "## Alpha Families", ""])
@@ -362,6 +369,12 @@ def _scan_ohlcv(files: Sequence[Path], *, canonical_manifest: Mapping[str, Any] 
             for item in canonical_manifest.get("files", ())
             if isinstance(item, Mapping) and item.get("csv_path")
         )
+        freshness = _freshness_metadata(
+            tuple(Path(item) for item in source_paths),
+            preferred=(canonical_manifest.get("available_end_at"),),
+        )
+        event_freshness = freshness["event_freshness_seconds"]
+        freshness_blockers = () if event_freshness is not None else ("canonical_event_freshness_unknown",)
         return DataCapability(
             capability_id="spot_ohlcv",
             available=int(canonical_manifest.get("canonical_row_count") or 0) > 0,
@@ -374,12 +387,19 @@ def _scan_ohlcv(files: Sequence[Path], *, canonical_manifest: Mapping[str, Any] 
             row_count=int(canonical_manifest.get("canonical_row_count") or 0),
             duplicate_count=final_duplicate_count,
             gap_count=gap_count,
-            freshness_seconds=_freshness_seconds(tuple(Path(item) for item in source_paths)),
+            **freshness,
             storage_size_bytes=int(canonical_manifest.get("storage_size_bytes") or 0),
             quality_status=quality,
             alpha_families_unlocked=ALPHA_UNLOCKS["spot_ohlcv"],
-            blockers=() if final_duplicate_count == 0 else ("canonical_duplicate_bars_present",),
-            notes=("canonical_ohlcv_snapshot", f"snapshot_id={canonical_manifest.get('snapshot_id')}"),
+            blockers=(
+                (() if final_duplicate_count == 0 else ("canonical_duplicate_bars_present",))
+                + freshness_blockers
+            ),
+            notes=(
+                "canonical_ohlcv_snapshot",
+                "freshness_seconds_is_event_availability_age",
+                f"snapshot_id={canonical_manifest.get('snapshot_id')}",
+            ),
         )
     csv_files = [
         path
@@ -393,6 +413,7 @@ def _scan_ohlcv(files: Sequence[Path], *, canonical_manifest: Mapping[str, Any] 
     timeframes: set[str] = set()
     starts: list[str] = []
     ends: list[str] = []
+    available_times: list[str] = []
     seen: set[tuple[str, str, str]] = set()
     duplicate_count = 0
     row_count = 0
@@ -413,9 +434,13 @@ def _scan_ohlcv(files: Sequence[Path], *, canonical_manifest: Mapping[str, Any] 
             timeframes.add(timeframe)
             starts.append(timestamp)
             ends.append(timestamp)
+            available_time = _parse_aware_dt(row.get("available_time"))
+            if available_time is not None:
+                available_times.append(available_time.isoformat())
     available = row_count > 0
     blockers = () if available else ("spot_ohlcv_missing",)
     quality = "ready_for_ohlcv_research" if available and duplicate_count == 0 else ("dedupe_required" if available else "missing")
+    freshness = _freshness_metadata(csv_files, preferred=(max(available_times) if available_times else None,))
     return DataCapability(
         capability_id="spot_ohlcv",
         available=available,
@@ -428,7 +453,7 @@ def _scan_ohlcv(files: Sequence[Path], *, canonical_manifest: Mapping[str, Any] 
         row_count=row_count,
         duplicate_count=duplicate_count,
         storage_size_bytes=_storage_size(csv_files),
-        freshness_seconds=_freshness_seconds(csv_files),
+        **freshness,
         quality_status=quality,
         alpha_families_unlocked=ALPHA_UNLOCKS["spot_ohlcv"] if available else (),
         blockers=blockers,
@@ -470,6 +495,10 @@ def _spot_post_trade_history_capability(manifest: Mapping[str, Any] | None) -> D
     ) if isinstance(payload.get("coverage"), Mapping) else 0
     source_path = str(payload.get("canonical_path") or "")
     source_paths = (source_path,) if source_path else ()
+    freshness = _freshness_metadata(
+        tuple(Path(item) for item in source_paths),
+        preferred=(payload.get("available_end_at"),),
+    )
     completed = status in {"COMPLETE", "COMPLETE_WITH_GAPS"} and row_count > 0
     runtime_parity = bool(
         (payload.get("temporal_contract") or {}).get("runtime_parity_proven")
@@ -499,7 +528,7 @@ def _spot_post_trade_history_capability(manifest: Mapping[str, Any] | None) -> D
         row_count=row_count,
         duplicate_count=int(payload.get("duplicate_count") or 0),
         gap_count=gap_count,
-        freshness_seconds=_freshness_seconds(tuple(Path(item) for item in source_paths)),
+        **freshness,
         storage_size_bytes=_storage_size(tuple(Path(item) for item in source_paths)),
         quality_status=(
             "historical_post_trade_research_only"
@@ -533,6 +562,9 @@ def _multi_symbol_ohlcv_capability(ohlcv: DataCapability) -> DataCapability:
         duplicate_count=ohlcv.duplicate_count,
         gap_count=ohlcv.gap_count,
         freshness_seconds=ohlcv.freshness_seconds,
+        event_freshness_seconds=ohlcv.event_freshness_seconds,
+        artifact_age_seconds=ohlcv.artifact_age_seconds,
+        last_available_time=ohlcv.last_available_time,
         storage_size_bytes=ohlcv.storage_size_bytes,
         quality_status="ready_for_cross_sectional_research" if available else "missing",
         alpha_families_unlocked=ALPHA_UNLOCKS["multi_symbol_ohlcv"] if available else (),
@@ -591,7 +623,7 @@ def _scan_spread_depth(files: Sequence[Path]) -> dict[str, DataCapability]:
         "end_at": max(ends) if ends else None,
         "row_count": row_count,
         "storage_size_bytes": _storage_size(csv_files),
-        "freshness_seconds": _freshness_seconds(csv_files),
+        **_freshness_metadata(csv_files),
     }
     quality_status = (
         "forward_captured_research_only"
@@ -650,7 +682,7 @@ def _scan_named_files(
         provider=provider if available else "unknown",
         row_count=_rough_csv_row_count(matched),
         storage_size_bytes=_storage_size(matched),
-        freshness_seconds=_freshness_seconds(matched),
+        **_freshness_metadata(matched),
         quality_status="available_metadata" if available else "missing",
         alpha_families_unlocked=ALPHA_UNLOCKS[capability_id] if available else (),
         blockers=() if available else (f"{capability_id}_missing",),
@@ -733,6 +765,26 @@ def _derivatives_capabilities_from_manifest(manifest: Mapping[str, Any]) -> dict
     basis_current_ready = bool(manifest.get("basis_current_ready"))
     oi_history_ready = bool(manifest.get("open_interest_history_ready"))
     current_oi_ready = bool(manifest.get("current_open_interest_ready"))
+    funding_paths = tuple(
+        Path(path)
+        for path in (manifest.get("funding_history_path"), funding.get("csv_path"), manifest.get("manifest_path"))
+        if path
+    )
+    perp_paths = tuple(
+        Path(path)
+        for path in (tickers.get("csv_path"), manifest.get("derivatives_candle_history_path"), candles.get("csv_path"), manifest.get("manifest_path"))
+        if path
+    )
+    basis_paths = tuple(
+        Path(path)
+        for path in (manifest.get("basis_history_path"), basis.get("csv_path"), manifest.get("manifest_path"))
+        if path
+    )
+    open_interest_paths = tuple(
+        Path(path)
+        for path in (manifest.get("open_interest_history_path"), open_interest.get("csv_path"), tickers.get("csv_path"), manifest.get("manifest_path"))
+        if path
+    )
     return {
         "funding_rates": DataCapability(
             capability_id="funding_rates",
@@ -745,7 +797,7 @@ def _derivatives_capabilities_from_manifest(manifest: Mapping[str, Any]) -> dict
             row_count=int(manifest.get("funding_history_row_count") or funding.get("row_count") or 0),
             duplicate_count=int(funding.get("duplicate_count") or 0),
             storage_size_bytes=_storage_size(tuple(Path(path) for path in (manifest.get("funding_history_path"), funding.get("csv_path")) if path)),
-            freshness_seconds=_freshness_seconds(tuple(Path(path) for path in source_paths if path)),
+            **_freshness_metadata(funding_paths),
             quality_status="historical_funding_ready" if funding_available else "missing",
             alpha_families_unlocked=ALPHA_UNLOCKS["funding_rates"] if funding_available else (),
             blockers=() if funding_available else ("funding_rates_missing",),
@@ -774,7 +826,7 @@ def _derivatives_capabilities_from_manifest(manifest: Mapping[str, Any]) -> dict
                     if path
                 )
             ),
-            freshness_seconds=_freshness_seconds(tuple(Path(path) for path in source_paths if path)),
+            **_freshness_metadata(perp_paths),
             quality_status="kraken_futures_perp_prices_ready" if perp_available else "missing",
             alpha_families_unlocked=ALPHA_UNLOCKS["futures_perp_prices"] if perp_available else (),
             blockers=() if perp_available else ("futures_perp_prices_missing",),
@@ -802,7 +854,7 @@ def _derivatives_capabilities_from_manifest(manifest: Mapping[str, Any]) -> dict
                     if path
                 )
             ),
-            freshness_seconds=_freshness_seconds(tuple(Path(path) for path in source_paths if path)),
+            **_freshness_metadata(basis_paths),
             quality_status="basis_history_ready" if basis_history_ready else ("current_basis_only_waiting_for_history" if basis_current_ready else "missing"),
             alpha_families_unlocked=ALPHA_UNLOCKS["spot_perp_basis"] if basis_history_ready else (),
             blockers=() if basis_history_ready else (("basis_history_too_short",) if basis_current_ready else ("spot_perp_basis_missing",)),
@@ -832,7 +884,7 @@ def _derivatives_capabilities_from_manifest(manifest: Mapping[str, Any]) -> dict
                     if path
                 )
             ),
-            freshness_seconds=_freshness_seconds(tuple(Path(path) for path in source_paths if path)),
+            **_freshness_metadata(open_interest_paths),
             quality_status="open_interest_history_ready" if oi_history_ready else ("current_open_interest_only" if current_oi_ready else "missing"),
             alpha_families_unlocked=ALPHA_UNLOCKS["open_interest"] if oi_history_ready else (),
             blockers=() if oi_history_ready else (("open_interest_history_missing",) if current_oi_ready else ("open_interest_missing",)),
@@ -863,6 +915,9 @@ def _volume_anomaly_capability(ohlcv: DataCapability) -> DataCapability:
         row_count=ohlcv.row_count,
         duplicate_count=ohlcv.duplicate_count,
         freshness_seconds=ohlcv.freshness_seconds,
+        event_freshness_seconds=ohlcv.event_freshness_seconds,
+        artifact_age_seconds=ohlcv.artifact_age_seconds,
+        last_available_time=ohlcv.last_available_time,
         storage_size_bytes=ohlcv.storage_size_bytes,
         quality_status="derived_from_ohlcv_volume" if available else "missing",
         alpha_families_unlocked=ALPHA_UNLOCKS["volume_anomalies"] if available else (),
@@ -908,7 +963,7 @@ def _scan_slippage_fill_history(state_db: Path | None) -> DataCapability:
         provider="autobot_trade_ledger",
         row_count=row_count,
         storage_size_bytes=state_db.stat().st_size,
-        freshness_seconds=_freshness_seconds((state_db,)),
+        **_freshness_metadata((state_db,)),
         quality_status="execution_history_available" if available else "ledger_without_cost_columns",
         alpha_families_unlocked=ALPHA_UNLOCKS["slippage_fill_history"] if available else (),
         blockers=() if available else ("slippage_or_fee_history_missing",),
@@ -1413,7 +1468,7 @@ def _storage_size(files: Sequence[Path]) -> int:
     return total
 
 
-def _freshness_seconds(files: Sequence[Path]) -> float | None:
+def _artifact_age_seconds(files: Sequence[Path]) -> float | None:
     mtimes = []
     for path in files:
         try:
@@ -1423,6 +1478,55 @@ def _freshness_seconds(files: Sequence[Path]) -> float | None:
     if not mtimes:
         return None
     return max(0.0, datetime.now(timezone.utc).timestamp() - max(mtimes))
+
+
+def _freshness_metadata(
+    files: Sequence[Path],
+    *,
+    preferred: Sequence[Any] = (),
+) -> dict[str, float | str | None]:
+    last_available_time = _latest_usable_available_time(files, preferred=preferred)
+    event_freshness = _event_freshness_seconds(last_available_time)
+    return {
+        # Preserve the existing field for downstream callers while preventing
+        # filesystem copy time from being mistaken for market freshness.
+        "freshness_seconds": event_freshness,
+        "event_freshness_seconds": event_freshness,
+        "artifact_age_seconds": _artifact_age_seconds(files),
+        "last_available_time": last_available_time,
+    }
+
+
+def _latest_usable_available_time(
+    files: Sequence[Path],
+    *,
+    preferred: Sequence[Any] = (),
+) -> str | None:
+    """Return the newest explicit, timezone-aware availability timestamp.
+
+    A copied file or manifest can have a new mtime while containing stale
+    market data.  Availability time is therefore preferred over filesystem
+    metadata, and naive values are not eligible evidence.
+    """
+
+    candidates = [parsed for value in preferred if (parsed := _parse_aware_dt(value)) is not None]
+    for path in files:
+        for row in _read_csv_sample(path, max_rows=None):
+            parsed = _parse_aware_dt(row.get("available_time"))
+            if parsed is not None:
+                candidates.append(parsed)
+    return max(candidates).isoformat() if candidates else None
+
+
+def _event_freshness_seconds(last_available_time: str | None) -> float | None:
+    parsed = _parse_aware_dt(last_available_time)
+    if parsed is None:
+        return None
+    return max(0.0, (datetime.now(timezone.utc) - parsed).total_seconds())
+
+
+def _format_age_seconds(value: float | None) -> str:
+    return "-" if value is None else f"{value:.1f}s"
 
 
 def _coverage_days_from_isoish(start_at: str, end_at: str) -> float:
@@ -1440,6 +1544,18 @@ def _parse_dt(value: str) -> datetime | None:
         return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
     except ValueError:
         return None
+
+
+def _parse_aware_dt(value: Any) -> datetime | None:
+    if value in (None, ""):
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return None
+    return parsed.astimezone(timezone.utc)
 
 
 def _data_signature(capability_by_id: Mapping[str, DataCapability]) -> dict[str, Any]:

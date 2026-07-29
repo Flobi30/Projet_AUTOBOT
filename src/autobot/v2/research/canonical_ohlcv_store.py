@@ -789,6 +789,7 @@ def _canonical_row(
     else:
         raise ValueError(f"unsupported_source_timestamp_role:{source_timestamp_role}")
     event_time = bar_close_time
+    _reject_naive_explicit_temporal_times(row)
     explicit_available = _parse_iso(row.get("available_time") or row.get("bar_close_time"))
     available_time = max(bar_close_time, explicit_available) if explicit_available else bar_close_time
     explicit_ingestion = _parse_iso(
@@ -961,6 +962,23 @@ def _parse_iso(value: Any) -> datetime | None:
         return parsed.astimezone(timezone.utc) if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
     except ValueError:
         return None
+
+
+def _reject_naive_explicit_temporal_times(row: Mapping[str, Any]) -> None:
+    """Reject ambiguous source-supplied availability metadata.
+
+    The canonicaliser may derive a bar-close availability timestamp from an
+    aware market timestamp.  It must never, however, silently interpret a
+    source-supplied naive temporal value as UTC: that changes what the
+    backtest could have known at a decision point.
+    """
+
+    for field in ("available_time", "bar_close_time"):
+        if _timestamp_is_naive(row.get(field)):
+            raise ValueError(f"naive_{field}")
+    for field in ("ingestion_time", "ingested_at", "collected_at", "fetched_at"):
+        if _timestamp_is_naive(row.get(field)):
+            raise ValueError("naive_ingestion_time")
 
 
 def _timestamp_is_naive(value: Any) -> bool:

@@ -162,6 +162,81 @@ def test_scanner_exposes_canonical_snapshot_scheduler_state(tmp_path):
     assert "funding_basis" in state["hypotheses_still_blocked"]
 
 
+def test_canonical_event_freshness_does_not_use_copied_artifact_mtime(tmp_path):
+    data_dir = _write_ohlcv(tmp_path)
+    manifest_dir = tmp_path / "manifests"
+    manifest_dir.mkdir()
+    canonical_path = tmp_path / "canonical" / "ohlcv" / "BTCZEUR_5m.csv"
+    canonical_path.parent.mkdir(parents=True)
+    canonical_path.write_text(
+        "timestamp,available_time,open,high,low,close,volume,symbol,timeframe\n"
+        "2000-01-01T00:00:00+00:00,2000-01-01T00:05:00+00:00,100,101,99,100.5,1000,BTCZEUR,5m\n",
+        encoding="utf-8",
+    )
+    manifest = {
+        "snapshot_id": "copied_old_snapshot",
+        "fingerprint": "copied-old-fingerprint",
+        "canonical_row_count": 1,
+        "duplicate_count": 0,
+        "available_end_at": "2000-01-01T00:05:00+00:00",
+        "end_at": "2000-01-01T00:00:00+00:00",
+        "symbols": ["BTCZEUR"],
+        "timeframes": ["5m"],
+        "files": [{"csv_path": str(canonical_path), "duplicate_count": 0}],
+    }
+    (manifest_dir / "copied_canonical_ohlcv.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    report = build_data_capability_scan_report(
+        run_id="pytest_event_freshness",
+        data_roots=(data_dir, manifest_dir),
+        memory_path=tmp_path / "missing_memory.json",
+    )
+    ohlcv = next(item for item in report.capabilities if item.capability_id == "spot_ohlcv")
+
+    assert ohlcv.last_available_time == "2000-01-01T00:05:00+00:00"
+    assert ohlcv.event_freshness_seconds is not None and ohlcv.event_freshness_seconds > 60 * 60 * 24 * 365
+    assert ohlcv.freshness_seconds == ohlcv.event_freshness_seconds
+    assert ohlcv.artifact_age_seconds is not None and ohlcv.artifact_age_seconds < 60
+    assert "freshness_seconds_is_event_availability_age" in ohlcv.notes
+
+
+def test_canonical_event_freshness_requires_aware_available_time(tmp_path):
+    data_dir = _write_ohlcv(tmp_path)
+    manifest_dir = tmp_path / "manifests"
+    manifest_dir.mkdir()
+    canonical_path = tmp_path / "canonical" / "ohlcv" / "BTCZEUR_5m.csv"
+    canonical_path.parent.mkdir(parents=True)
+    canonical_path.write_text(
+        "timestamp,available_time,open,high,low,close,volume,symbol,timeframe\n"
+        "2026-01-01T00:00:00+00:00,2026-01-01T00:05:00,100,101,99,100.5,1000,BTCZEUR,5m\n",
+        encoding="utf-8",
+    )
+    (manifest_dir / "naive_canonical_ohlcv.json").write_text(
+        json.dumps(
+            {
+                "snapshot_id": "naive_available_snapshot",
+                "fingerprint": "naive-available-fingerprint",
+                "canonical_row_count": 1,
+                "duplicate_count": 0,
+                "available_end_at": "2026-01-01T00:05:00",
+                "files": [{"csv_path": str(canonical_path), "duplicate_count": 0}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_data_capability_scan_report(
+        run_id="pytest_naive_event_freshness",
+        data_roots=(data_dir, manifest_dir),
+        memory_path=tmp_path / "missing_memory.json",
+    )
+    ohlcv = next(item for item in report.capabilities if item.capability_id == "spot_ohlcv")
+
+    assert ohlcv.event_freshness_seconds is None
+    assert ohlcv.artifact_age_seconds is not None
+    assert "canonical_event_freshness_unknown" in ohlcv.blockers
+
+
 def test_scanner_reports_posttrade_history_without_granting_runtime_parity(tmp_path):
     data_dir = _write_ohlcv(tmp_path)
     manifest_dir = tmp_path / "manifests"
