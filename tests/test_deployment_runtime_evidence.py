@@ -1,11 +1,121 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
+import shlex
+import shutil
+import subprocess
 
 import pytest
 
 
 pytestmark = pytest.mark.unit
+
+
+_COMMIT = "a" * 40
+
+
+def _bash_path(path: Path) -> str:
+    """Return a path understood by the local Bash implementation.
+
+    Desktop tests run from Windows through WSL Bash, while CI normally runs
+    native POSIX Bash.  Keeping this conversion in the hermetic test avoids
+    any dependency on Docker, Git or a VPS.
+    """
+
+    resolved = path.resolve()
+    if not resolved.drive:
+        return str(resolved)
+    return f"/mnt/{resolved.drive.rstrip(':').lower()}{resolved.as_posix()[2:]}"
+
+
+def _write_executable(path: Path, content: str) -> None:
+    path.write_text(content, encoding="utf-8", newline="\n")
+    path.chmod(0o755)
+
+
+def _run_verifier_with_fake_runtime_lock(tmp_path: Path, *, program_locked: bool) -> subprocess.CompletedProcess[str]:
+    """Run the verifier against fake local tools, never a real container."""
+
+    root = Path(__file__).resolve().parents[1]
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir(parents=True)
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    _write_executable(
+        fake_bin / "git",
+        f"#!/usr/bin/env bash\nprintf '%s\\n' '{_COMMIT}'\n",
+    )
+    _write_executable(
+        fake_bin / "curl",
+        "#!/usr/bin/env bash\nprintf '%s\\n' '{\"status\":\"healthy\",\"components\":{\"websocket\":\"connected\"}}'\n",
+    )
+    _write_executable(
+        fake_bin / "docker",
+        """#!/usr/bin/env bash
+set -euo pipefail
+
+commit='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+case "$1" in
+  ps)
+    printf '%s\\n' 'container-123'
+    ;;
+  image)
+    if [[ "$*" == *'org.opencontainers.image.revision'* ]]; then
+      printf '%s\\n' "$commit"
+    else
+      printf '%s\\n' 'sha256:expected-image'
+    fi
+    ;;
+  inspect)
+    if [[ "$*" == *'.State.Status'* ]]; then
+      printf '%s\\n' 'running'
+    elif [[ "$*" == *'.State.Health'* ]]; then
+      printf '%s\\n' 'healthy'
+    elif [[ "$*" == *'.Config.Env'* ]]; then
+      cat <<'ENV'
+AUTOBOT_OBSERVATION_ONLY_RUNTIME=true
+PAPER_TRADING=false
+PAPER_EXECUTION_ADAPTER_ENABLED=false
+PAPER_EXECUTION_ROUTER_ENABLED=false
+PAPER_TEST_TRADING_ENABLED=false
+COLONY_AUTO_LIVE_PROMOTION=false
+STRATEGY_ROUTER_LIVE_ENABLED=false
+LIVE_TRADING_CONFIRMATION=false
+ENV
+    elif [[ "$*" == *'.Image'* ]]; then
+      printf '%s\\n' 'sha256:expected-image'
+    else
+      exit 64
+    fi
+    ;;
+  exec)
+    printf '{\"program_execution_locked\":%s,\"observation_only_runtime\":true,\"paper_execution_authorized\":false,\"real_order_mutation_authorized\":false}\\n' "${FAKE_PROGRAM_EXECUTION_LOCKED:?}"
+    ;;
+  *)
+    exit 64
+    ;;
+esac
+""",
+    )
+
+    bash = shutil.which("bash")
+    assert bash is not None, "deployment verifier requires Bash"
+    shell_command = (
+        f"PATH={shlex.quote(_bash_path(fake_bin))}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin; "
+        f"AUTOBOT_REPO_DIR={shlex.quote(_bash_path(repo))}; "
+        f"FAKE_PROGRAM_EXECUTION_LOCKED={str(program_locked).lower()}; "
+        "export PATH AUTOBOT_REPO_DIR FAKE_PROGRAM_EXECUTION_LOCKED; "
+        f"exec bash {shlex.quote(_bash_path(root / 'deploy' / 'verify-autobot-runtime-evidence.sh'))}"
+    )
+    return subprocess.run(
+        [bash, "-c", shell_command],
+        text=True,
+        capture_output=True,
+        check=False,
+        env=os.environ.copy(),
+    )
 
 
 def test_runtime_evidence_script_is_read_only_and_requires_strict_safety_proof():
@@ -38,3 +148,14 @@ def test_runtime_evidence_script_is_read_only_and_requires_strict_safety_proof()
     assert '"program_execution_locked":true' in script
     assert '"paper_capital_disabled":true' in script
     assert '"live_disabled":true' in script
+
+
+@pytest.mark.integration
+def test_runtime_evidence_verifier_accepts_only_the_exact_container_lock_state(tmp_path):
+    valid = _run_verifier_with_fake_runtime_lock(tmp_path / "valid", program_locked=True)
+    forged = _run_verifier_with_fake_runtime_lock(tmp_path / "forged", program_locked=False)
+
+    assert valid.returncode == 0, valid.stderr
+    assert '"program_execution_locked":true' in valid.stdout
+    assert forged.returncode != 0
+    assert "running container does not prove the program execution lock" in forged.stderr
