@@ -34,8 +34,9 @@ is intentionally stale/incomplete and must be regenerated after deployment.
 
 - Core code commit: `ee39d9c5e073f62d7043ebaaf17dad8a4f9645a5`
 - Documentation follow-up: `341611992c031ec6b8381a35bd7f89b2dab41ad6`
-- Focused deployment/readiness/CLI tests: `75 passed`
-- Full non-regression suite: `2024 passed, 6 skipped, 2 deselected`
+- Hermetic verifier-behaviour test: `b35faec1634e38b0865af646c9cefc5fd5304f1b`
+- Focused deployment verifier test: `2 passed`
+- Full non-regression suite: `2026 passed, 6 skipped, 2 deselected`
 - `python -m compileall -q src`: passed
 - `bash -n deploy/verify-autobot-runtime-evidence.sh`: passed
 - `git diff --check`: passed before commit
