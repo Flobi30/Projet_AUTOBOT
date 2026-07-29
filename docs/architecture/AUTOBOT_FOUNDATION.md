@@ -59,6 +59,16 @@ permission. An invalid input signal remains an auditable target rejection;
 missing capacity or one component failing pessimistic costs blocks the entire
 target rather than allowing a partial unreviewed portfolio through.
 
+## Feature-drift evidence
+
+The shadow safety policy accepts a feature-drift score only when it is derived
+from `VerifiedFeatureVector` values. `assess_verified_feature_drift` requires
+one explicit market, timeframe, feature version, feature-registry fingerprint
+and fixed histogram bins; every vector must have been available by the stated
+assessment time. Missing evidence produces `WATCH`, while an adverse score can
+only reduce, disable new entries or quarantine an artifact. It can never relax
+risk, promote a strategy, enable paper capital or enable live trading.
+
 ## Offline shadow-provenance boundary
 
 `offline-shadow-provenance-bind` is the only supported v1 batch hand-off from

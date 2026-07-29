@@ -14,13 +14,15 @@ import json
 import math
 from pathlib import Path
 import sqlite3
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from autobot.v2.contracts import (
     FeatureSnapshotReference,
+    MarketIdentity,
     RiskMandateReference,
     StrategyArtifactReference,
     TargetPortfolio,
+    VerifiedFeatureVector,
     contract_fingerprint,
 )
 
@@ -512,6 +514,212 @@ def assess_data_distribution_drift(
 
 
 @dataclass(frozen=True)
+class FeatureDriftAssessment:
+    """Versioned feature-distribution drift evidence for shadow safety.
+
+    The score is derived only from material-verified, point-in-time feature
+    vectors using one declared feature version and fixed, predeclared bins.
+    It cannot be used as an alpha input or as an authorization to relax a
+    strategy; it is evidence for the monotonic safety policy only.
+    """
+
+    feature_id: str
+    feature_version: str
+    market: MarketIdentity
+    timeframe: str
+    feature_registry_fingerprint: str
+    bin_edges: tuple[float, ...]
+    baseline_count: int
+    shadow_count: int
+    total_variation_score: float
+    assessed_at: datetime
+    baseline_vector_fingerprints: tuple[str, ...]
+    shadow_vector_fingerprints: tuple[str, ...]
+    research_only: bool = True
+    paper_capital_allowed: bool = False
+    live_allowed: bool = False
+
+    def __post_init__(self) -> None:
+        feature_id = str(self.feature_id).strip()
+        feature_version = str(self.feature_version).strip()
+        timeframe = str(self.timeframe).strip()
+        registry_fingerprint = str(self.feature_registry_fingerprint).strip()
+        if not feature_id or not feature_version or not timeframe or not registry_fingerprint:
+            raise ShadowGovernanceError("feature drift assessment requires feature identity and registry provenance")
+        if not isinstance(self.market, MarketIdentity):
+            raise ShadowGovernanceError("feature drift assessment requires MarketIdentity")
+        if self.assessed_at.tzinfo is None or self.assessed_at.utcoffset() is None:
+            raise ShadowGovernanceError("feature drift assessed_at must be timezone-aware")
+        edges = tuple(float(edge) for edge in self.bin_edges)
+        if not edges or any(not math.isfinite(edge) for edge in edges):
+            raise ShadowGovernanceError("feature drift bin_edges must be finite and non-empty")
+        if any(left >= right for left, right in zip(edges, edges[1:])):
+            raise ShadowGovernanceError("feature drift bin_edges must be strictly increasing")
+        for field_name in ("baseline_count", "shadow_count"):
+            raw_value = getattr(self, field_name)
+            value = int(raw_value)
+            if isinstance(raw_value, bool) or value <= 0 or value != raw_value:
+                raise ShadowGovernanceError(f"{field_name} must be a positive integer")
+        score = float(self.total_variation_score)
+        if not math.isfinite(score) or not 0.0 <= score <= 1.0:
+            raise ShadowGovernanceError("feature drift total_variation_score must be in [0, 1]")
+        baseline_fingerprints = tuple(str(value).strip() for value in self.baseline_vector_fingerprints)
+        shadow_fingerprints = tuple(str(value).strip() for value in self.shadow_vector_fingerprints)
+        for label, fingerprints, expected_count in (
+            ("baseline", baseline_fingerprints, int(self.baseline_count)),
+            ("shadow", shadow_fingerprints, int(self.shadow_count)),
+        ):
+            if len(fingerprints) != expected_count or not all(fingerprints) or len(fingerprints) != len(set(fingerprints)):
+                raise ShadowGovernanceError(f"feature drift {label} vector provenance is incomplete")
+        if self.paper_capital_allowed or self.live_allowed or not self.research_only:
+            raise ShadowGovernanceError("feature drift assessment is research-only")
+        object.__setattr__(self, "feature_id", feature_id)
+        object.__setattr__(self, "feature_version", feature_version)
+        object.__setattr__(self, "timeframe", timeframe)
+        object.__setattr__(self, "feature_registry_fingerprint", registry_fingerprint)
+        object.__setattr__(self, "bin_edges", edges)
+        object.__setattr__(self, "total_variation_score", score)
+        object.__setattr__(self, "assessed_at", self.assessed_at.astimezone(timezone.utc))
+        object.__setattr__(self, "baseline_vector_fingerprints", tuple(sorted(baseline_fingerprints)))
+        object.__setattr__(self, "shadow_vector_fingerprints", tuple(sorted(shadow_fingerprints)))
+
+
+def assess_verified_feature_drift(
+    baseline_vectors: Sequence[VerifiedFeatureVector],
+    shadow_vectors: Sequence[VerifiedFeatureVector],
+    *,
+    feature_id: str,
+    bin_edges: Sequence[float],
+    assessed_at: datetime,
+) -> FeatureDriftAssessment:
+    """Compare one versioned feature distribution without look-ahead.
+
+    All vectors must use one explicit market, timeframe, feature version and
+    feature-registry fingerprint. Values must have been available by
+    ``assessed_at``. The fixed bins are caller-declared evidence; no adaptive
+    binning is allowed after looking at the shadow distribution.
+    """
+
+    if assessed_at.tzinfo is None or assessed_at.utcoffset() is None:
+        raise ShadowGovernanceError("feature drift assessed_at must be timezone-aware")
+    normalized_assessed_at = assessed_at.astimezone(timezone.utc)
+    normalized_feature_id = str(feature_id).strip()
+    if not normalized_feature_id:
+        raise ShadowGovernanceError("feature drift feature_id is required")
+    edges = tuple(float(edge) for edge in bin_edges)
+    if not edges or any(not math.isfinite(edge) for edge in edges):
+        raise ShadowGovernanceError("feature drift bin_edges must be finite and non-empty")
+    if any(left >= right for left, right in zip(edges, edges[1:])):
+        raise ShadowGovernanceError("feature drift bin_edges must be strictly increasing")
+
+    baseline = _collect_verified_feature_samples(
+        baseline_vectors,
+        label="baseline",
+        feature_id=normalized_feature_id,
+        assessed_at=normalized_assessed_at,
+    )
+    shadow = _collect_verified_feature_samples(
+        shadow_vectors,
+        label="shadow",
+        feature_id=normalized_feature_id,
+        assessed_at=normalized_assessed_at,
+    )
+    for field_name in ("feature_version", "market", "timeframe", "feature_registry_fingerprint"):
+        if baseline[field_name] != shadow[field_name]:
+            raise ShadowGovernanceError(f"feature drift {field_name} mismatch")
+
+    baseline_counts = _feature_histogram(baseline["values"], edges)
+    shadow_counts = _feature_histogram(shadow["values"], edges)
+    baseline_total = sum(baseline_counts)
+    shadow_total = sum(shadow_counts)
+    score = 0.5 * sum(
+        abs((left / baseline_total) - (right / shadow_total))
+        for left, right in zip(baseline_counts, shadow_counts)
+    )
+    return FeatureDriftAssessment(
+        feature_id=normalized_feature_id,
+        feature_version=str(baseline["feature_version"]),
+        market=baseline["market"],
+        timeframe=str(baseline["timeframe"]),
+        feature_registry_fingerprint=str(baseline["feature_registry_fingerprint"]),
+        bin_edges=edges,
+        baseline_count=baseline_total,
+        shadow_count=shadow_total,
+        total_variation_score=score,
+        assessed_at=normalized_assessed_at,
+        baseline_vector_fingerprints=baseline["vector_fingerprints"],
+        shadow_vector_fingerprints=shadow["vector_fingerprints"],
+    )
+
+
+def _collect_verified_feature_samples(
+    vectors: Sequence[VerifiedFeatureVector],
+    *,
+    label: str,
+    feature_id: str,
+    assessed_at: datetime,
+) -> Mapping[str, object]:
+    values: list[float] = []
+    vector_fingerprints: list[str] = []
+    market: MarketIdentity | None = None
+    timeframe: str | None = None
+    feature_version: str | None = None
+    registry_fingerprint: str | None = None
+    for vector in tuple(vectors):
+        if not isinstance(vector, VerifiedFeatureVector):
+            raise ShadowGovernanceError(f"feature drift {label} requires VerifiedFeatureVector values")
+        if vector.observed_at > assessed_at:
+            raise ShadowGovernanceError(f"feature drift {label} vector is after assessed_at")
+        snapshot = vector.feature_snapshot
+        if not snapshot.material_verified or not snapshot.runtime_parity_proven:
+            raise ShadowGovernanceError(f"feature drift {label} vector lacks verified feature provenance")
+        item = next((value for value in vector.values if value.feature_id == feature_id), None)
+        if item is None:
+            raise ShadowGovernanceError(f"feature drift {label} vector is missing feature_id")
+        if item.available_time > assessed_at:
+            raise ShadowGovernanceError(f"feature drift {label} feature value is after assessed_at")
+        numeric_value = float(item.value)
+        if not math.isfinite(numeric_value):
+            raise ShadowGovernanceError(f"feature drift {label} feature value must be finite")
+        if market is None:
+            market = vector.market
+            timeframe = vector.timeframe
+            feature_version = item.feature_version
+            registry_fingerprint = snapshot.feature_registry_fingerprint
+        elif (
+            market != vector.market
+            or timeframe != vector.timeframe
+            or feature_version != item.feature_version
+            or registry_fingerprint != snapshot.feature_registry_fingerprint
+        ):
+            raise ShadowGovernanceError(f"feature drift {label} vectors must share one feature contract")
+        values.append(numeric_value)
+        vector_fingerprints.append(vector.fingerprint)
+    if not values or market is None or timeframe is None or feature_version is None or registry_fingerprint is None:
+        raise ShadowGovernanceError(f"feature drift {label} values are required")
+    if len(vector_fingerprints) != len(set(vector_fingerprints)):
+        raise ShadowGovernanceError(f"feature drift {label} vectors must be unique")
+    return {
+        "values": tuple(values),
+        "vector_fingerprints": tuple(vector_fingerprints),
+        "market": market,
+        "timeframe": timeframe,
+        "feature_version": feature_version,
+        "feature_registry_fingerprint": registry_fingerprint,
+    }
+
+
+def _feature_histogram(values: Sequence[float], bin_edges: Sequence[float]) -> tuple[int, ...]:
+    counts = [0] * (len(bin_edges) + 1)
+    for value in values:
+        index = 0
+        while index < len(bin_edges) and value >= bin_edges[index]:
+            index += 1
+        counts[index] += 1
+    return tuple(counts)
+
+
+@dataclass(frozen=True)
 class ShadowPerformanceWindow:
     trade_count: int
     rolling_profit_factor: float | None
@@ -521,6 +729,7 @@ class ShadowPerformanceWindow:
     cost_drift_bps: float | None
     data_age: timedelta
     data_drift_score: float | None = None
+    feature_drift_evidence: FeatureDriftAssessment | None = None
 
     def __post_init__(self) -> None:
         if self.trade_count < 0:
@@ -542,6 +751,22 @@ class ShadowPerformanceWindow:
             raise ShadowGovernanceError("feature_drift_score must be in [0, 1]")
         if self.data_drift_score is not None and not 0.0 <= self.data_drift_score <= 1.0:
             raise ShadowGovernanceError("data_drift_score must be in [0, 1]")
+        evidence = self.feature_drift_evidence
+        if evidence is None:
+            if self.feature_drift_score is not None:
+                raise ShadowGovernanceError("feature_drift_score requires FeatureDriftAssessment evidence")
+        else:
+            if not isinstance(evidence, FeatureDriftAssessment):
+                raise ShadowGovernanceError("feature_drift_evidence must be a FeatureDriftAssessment")
+            if self.feature_drift_score is None:
+                object.__setattr__(self, "feature_drift_score", evidence.total_variation_score)
+            elif not math.isclose(
+                float(self.feature_drift_score),
+                evidence.total_variation_score,
+                rel_tol=0.0,
+                abs_tol=1e-12,
+            ):
+                raise ShadowGovernanceError("feature_drift_score does not match FeatureDriftAssessment evidence")
 
 
 @dataclass(frozen=True)
@@ -961,7 +1186,10 @@ def decide_shadow_safety(
         elif drawdown >= policy.reduce_drawdown_pct:
             calculated = _more_severe(calculated, "REDUCE")
             reasons.append("drawdown_reduced")
-    if performance.feature_drift_score is not None:
+    if performance.feature_drift_evidence is None:
+        calculated = _more_severe(calculated, "WATCH")
+        reasons.append("feature_drift_evidence_missing")
+    elif performance.feature_drift_score is not None:
         drift = performance.feature_drift_score
         if drift >= policy.quarantine_feature_drift:
             calculated = _more_severe(calculated, "QUARANTINE")

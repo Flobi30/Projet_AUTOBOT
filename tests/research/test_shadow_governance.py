@@ -10,7 +10,13 @@ import sqlite3
 
 import pytest
 
-from autobot.v2.contracts import RiskMandateReference, TargetPortfolio
+from autobot.v2.contracts import (
+    FeatureValue,
+    MarketIdentity,
+    RiskMandateReference,
+    TargetPortfolio,
+    VerifiedFeatureVector,
+)
 from autobot.v2.research.experiment_registry import ExperimentRegistry, ExperimentSpec
 from autobot.v2.research.shadow_review_evidence import seal_shadow_review_evidence
 from autobot.v2.research.shadow_governance import (
@@ -23,6 +29,7 @@ from autobot.v2.research.shadow_governance import (
     StrategyArtifact,
     apply_shadow_safety,
     assess_data_distribution_drift,
+    assess_verified_feature_drift,
     build_strategy_artifact_from_experiment,
     decide_shadow_safety,
     evaluate_shadow_parity,
@@ -124,6 +131,57 @@ def _feature_snapshot_evidence() -> dict[str, object]:
 
 def _feature_snapshot():
     return feature_snapshot_reference_from_mapping(_feature_snapshot_evidence())
+
+
+def _feature_drift_vector(value: float, *, label: str) -> VerifiedFeatureVector:
+    observed_at = datetime(2026, 7, 12, 10, 1, tzinfo=timezone.utc)
+    source_snapshot_id = f"feature-drift-source-{label}"
+    snapshot = replace(
+        _feature_snapshot(),
+        feature_snapshot_id=f"feature-drift-snapshot-{label}",
+        fingerprint=f"feature-drift-fingerprint-{label}",
+        source_snapshot_id=source_snapshot_id,
+        source_snapshot_fingerprint=f"feature-drift-source-fingerprint-{label}",
+        bundle_content_fingerprint=f"feature-drift-bundle-{label}",
+    )
+    market = MarketIdentity("kraken", "spot", "BTCEUR", "BTC", "EUR")
+    return VerifiedFeatureVector(
+        feature_snapshot=snapshot,
+        market=market,
+        timeframe="1h",
+        observed_at=observed_at,
+        values=(
+            FeatureValue(
+                feature_id="basis_bps",
+                feature_version="1.0.0",
+                market=market,
+                timeframe="1h",
+                event_time=observed_at,
+                available_time=observed_at,
+                source_snapshot_id=source_snapshot_id,
+                value=value,
+            ),
+        ),
+    )
+
+
+def _feature_drift(score: float) -> object:
+    units = 20
+    positive_count = int(round(float(score) * units))
+    if not 0 <= positive_count <= units or positive_count / units != pytest.approx(float(score)):
+        raise ValueError("fixture score must be representable in twentieths")
+    baseline = tuple(_feature_drift_vector(-1.0, label=f"baseline-{index}") for index in range(units))
+    shadow = tuple(
+        _feature_drift_vector(1.0 if index < positive_count else -1.0, label=f"shadow-{index}")
+        for index in range(units)
+    )
+    return assess_verified_feature_drift(
+        baseline,
+        shadow,
+        feature_id="basis_bps",
+        bin_edges=(0.0,),
+        assessed_at=datetime(2026, 7, 12, 10, 2, tzinfo=timezone.utc),
+    )
 
 
 def _holdout_partition_fixture(partition_id: str) -> dict[str, object]:
@@ -527,6 +585,7 @@ def test_shadow_safety_only_escalates_risk_reduction_and_cannot_start_shadow():
         rolling_expectancy_eur=0.1,
         max_drawdown_pct=1.0,
         feature_drift_score=0.05,
+        feature_drift_evidence=_feature_drift(0.05),
         cost_drift_bps=0.0,
         data_age=timedelta(seconds=10),
     )
@@ -536,6 +595,7 @@ def test_shadow_safety_only_escalates_risk_reduction_and_cannot_start_shadow():
         rolling_expectancy_eur=-0.2,
         max_drawdown_pct=30.0,
         feature_drift_score=0.90,
+        feature_drift_evidence=_feature_drift(0.90),
         cost_drift_bps=10.0,
         data_age=timedelta(minutes=10),
     )
@@ -586,6 +646,7 @@ def test_shadow_cost_drift_can_only_reduce_or_block_the_shadow_envelope():
             rolling_expectancy_eur=0.1,
             max_drawdown_pct=1.0,
             feature_drift_score=0.05,
+            feature_drift_evidence=_feature_drift(0.05),
             cost_drift_bps=cost_drift_bps,
             data_age=timedelta(seconds=10),
         )
@@ -623,6 +684,7 @@ def test_shadow_data_distribution_drift_is_bounded_and_can_only_reduce_risk():
             rolling_expectancy_eur=0.1,
             max_drawdown_pct=1.0,
             feature_drift_score=0.05,
+            feature_drift_evidence=_feature_drift(0.05),
             cost_drift_bps=0.0,
             data_age=timedelta(seconds=10),
             data_drift_score=data_drift_score,
@@ -640,6 +702,83 @@ def test_shadow_data_distribution_drift_is_bounded_and_can_only_reduce_risk():
         assess_data_distribution_drift({"BTC": 0.0}, {"BTC": 1.0})
     with pytest.raises(ShadowGovernanceError, match="drift thresholds"):
         ShadowSafetyPolicy(reduce_data_drift=0.10)
+
+
+def test_feature_drift_is_derived_from_verified_vectors_and_bound_to_safety():
+    assessment = _feature_drift(0.30)
+    window = ShadowPerformanceWindow(
+        trade_count=60,
+        rolling_profit_factor=1.4,
+        rolling_expectancy_eur=0.1,
+        max_drawdown_pct=1.0,
+        feature_drift_score=None,
+        feature_drift_evidence=assessment,
+        cost_drift_bps=0.0,
+        data_age=timedelta(seconds=10),
+    )
+
+    assert assessment.feature_id == "basis_bps"
+    assert assessment.feature_version == "1.0.0"
+    assert assessment.total_variation_score == pytest.approx(0.30)
+    assert assessment.baseline_count == 20
+    assert assessment.shadow_count == 20
+    assert window.feature_drift_score == pytest.approx(0.30)
+    assert decide_shadow_safety(window).action == "REDUCE"
+
+
+def test_feature_drift_score_cannot_be_injected_or_mismatched_without_verified_evidence():
+    missing_evidence = ShadowPerformanceWindow(
+        trade_count=60,
+        rolling_profit_factor=1.4,
+        rolling_expectancy_eur=0.1,
+        max_drawdown_pct=1.0,
+        feature_drift_score=None,
+        cost_drift_bps=0.0,
+        data_age=timedelta(seconds=10),
+    )
+    missing_decision = decide_shadow_safety(missing_evidence)
+    assert missing_decision.action == "WATCH"
+    assert "feature_drift_evidence_missing" in missing_decision.reasons
+
+    with pytest.raises(ShadowGovernanceError, match="requires FeatureDriftAssessment"):
+        ShadowPerformanceWindow(
+            trade_count=60,
+            rolling_profit_factor=1.4,
+            rolling_expectancy_eur=0.1,
+            max_drawdown_pct=1.0,
+            feature_drift_score=0.30,
+            cost_drift_bps=0.0,
+            data_age=timedelta(seconds=10),
+        )
+
+    with pytest.raises(ShadowGovernanceError, match="does not match"):
+        ShadowPerformanceWindow(
+            trade_count=60,
+            rolling_profit_factor=1.4,
+            rolling_expectancy_eur=0.1,
+            max_drawdown_pct=1.0,
+            feature_drift_score=0.10,
+            feature_drift_evidence=_feature_drift(0.30),
+            cost_drift_bps=0.0,
+            data_age=timedelta(seconds=10),
+        )
+
+    baseline = (_feature_drift_vector(-1.0, label="mismatch-baseline"),)
+    mismatched = replace(
+        _feature_drift_vector(-1.0, label="mismatch-shadow"),
+        feature_snapshot=replace(
+            _feature_drift_vector(-1.0, label="mismatch-shadow").feature_snapshot,
+            feature_registry_fingerprint="different-registry",
+        ),
+    )
+    with pytest.raises(ShadowGovernanceError, match="feature_registry_fingerprint mismatch"):
+        assess_verified_feature_drift(
+            baseline,
+            (mismatched,),
+            feature_id="basis_bps",
+            bin_edges=(0.0,),
+            assessed_at=datetime(2026, 7, 12, 10, 2, tzinfo=timezone.utc),
+        )
 
 
 def test_strategy_artifact_registry_is_append_only_and_refuses_safety_relaxation(tmp_path):
@@ -664,12 +803,22 @@ def test_strategy_artifact_registry_is_append_only_and_refuses_safety_relaxation
         rolling_expectancy_eur=-0.2,
         max_drawdown_pct=30.0,
         feature_drift_score=0.90,
+        feature_drift_evidence=_feature_drift(0.90),
         cost_drift_bps=10.0,
         data_age=timedelta(minutes=10),
     )
     quarantine = decide_shadow_safety(severe)
     normal = decide_shadow_safety(
-        ShadowPerformanceWindow(60, 1.4, 0.1, 1.0, 0.05, 0.0, timedelta(seconds=1))
+        ShadowPerformanceWindow(
+            60,
+            1.4,
+            0.1,
+            1.0,
+            0.05,
+            0.0,
+            timedelta(seconds=1),
+            feature_drift_evidence=_feature_drift(0.05),
+        )
     )
 
     artifact_id = registry.register(artifact)
@@ -778,6 +927,7 @@ def test_shadow_safety_disable_or_quarantine_blocks_new_order_intent_reference(t
             rolling_expectancy_eur=-0.1,
             max_drawdown_pct=20.0,
             feature_drift_score=0.6,
+            feature_drift_evidence=_feature_drift(0.6),
             cost_drift_bps=20.0,
             data_age=timedelta(seconds=1),
         )
@@ -813,6 +963,7 @@ def test_shadow_safety_reduce_cannot_reuse_an_unreduced_shadow_mandate(tmp_path)
             rolling_expectancy_eur=0.1,
             max_drawdown_pct=1.0,
             feature_drift_score=0.05,
+            feature_drift_evidence=_feature_drift(0.05),
             cost_drift_bps=0.0,
             data_age=timedelta(seconds=1),
         )
