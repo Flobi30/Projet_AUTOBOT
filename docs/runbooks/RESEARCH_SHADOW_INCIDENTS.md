@@ -33,11 +33,14 @@ For an on-demand read-only audit from the AUTOBOT container:
 ```text
 python -m autobot.v2.cli runtime-resilience-audit \
   --state-db data/autobot_state.db \
-  --websocket-status connected
+  --websocket-status connected \
+  --websocket-observed-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 ```
 
-Do not claim a connected WebSocket unless it was explicitly observed. Use
-`unknown` if there is no current health evidence.
+`connected` must include a fresh UTC observation timestamp (60 seconds by
+default). Missing, future or stale connected evidence is treated as a
+fail-closed `WEBSOCKET_DISCONNECTED` incident. Use `unknown` if there is no
+current health evidence.
 
 ## Incident response
 
