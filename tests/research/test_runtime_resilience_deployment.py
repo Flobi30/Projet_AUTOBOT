@@ -18,6 +18,7 @@ def test_runtime_resilience_audit_script_has_a_read_only_non_authorizing_boundar
 
     assert 'AUTOBOT_RUNTIME_RESILIENCE_AUDIT_ENABLED:-false' in script
     assert 'AUTOBOT_RUNTIME_RESILIENCE_HEALTH_WAIT_SECONDS:-45' in script
+    assert 'AUTOBOT_RUNTIME_RESILIENCE_MAX_WEBSOCKET_AGE_SECONDS:-60' in script
     assert 'curl --fail --silent --max-time 5 http://127.0.0.1:8080/health' in script
     assert 'health_deadline=$((SECONDS + HEALTH_WAIT_SECONDS))' in script
     assert 'websocket_status="connected"' in script
@@ -28,6 +29,7 @@ def test_runtime_resilience_audit_script_has_a_read_only_non_authorizing_boundar
     assert '"${REPO_DIR}/data:/app/data:ro"' in script
     assert "runtime-resilience-audit" in script
     assert "--websocket-status" in script
+    assert "--websocket-observed-at" in script
     assert "PAPER_EXECUTION_ADAPTER_ENABLED" not in script
     assert ".env" not in script
     assert "sendorder" not in script.lower()
@@ -41,6 +43,7 @@ def test_runtime_resilience_audit_systemd_timer_is_isolated_and_operational_only
 
     assert "Environment=AUTOBOT_RUNTIME_RESILIENCE_AUDIT_ENABLED=true" in service
     assert "Environment=AUTOBOT_RUNTIME_RESILIENCE_HEALTH_WAIT_SECONDS=45" in service
+    assert "Environment=AUTOBOT_RUNTIME_RESILIENCE_MAX_WEBSOCKET_AGE_SECONDS=60" in service
     assert "NoNewPrivileges=true" in service
     assert "ExecStart=/opt/Projet_AUTOBOT/deploy/systemd/run-autobot-runtime-resilience-audit.sh" in service
     assert "TimeoutStartSec=2min" in service

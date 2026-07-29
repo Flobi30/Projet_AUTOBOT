@@ -2039,12 +2039,15 @@ def test_cli_runtime_resilience_audit_is_read_only_and_reports_explicit_websocke
             "0",
             "--websocket-status",
             "connected",
+            "--websocket-observed-at",
+            observed_at,
         ]
     )
 
     output = json.loads(capsys.readouterr().out)
     assert exit_code == 0
     assert output["status"] == "RESILIENCE_HEALTHY"
+    assert output["websocket_observed_at"] == observed_at
     assert output["fail_closed"]["action"] == "NORMAL"
     assert output["paper_capital_allowed"] is False
     assert output["live_allowed"] is False

@@ -78,6 +78,16 @@ acknowledged, partial or recovered-unknown state. Out-of-order evidence is
 rejected before it can influence state reconstruction, reconciliation or TCA.
 This remains a hermetic research model, not the runtime order router.
 
+## Runtime resilience WebSocket evidence
+
+The isolated runtime-resilience audit cannot declare a WebSocket healthy from a
+plain `connected` string. A connected observation carries a UTC observation
+time and is accepted only within the configured freshness window (60 seconds by
+default). Missing, future or stale evidence produces the existing fail-closed
+`WEBSOCKET_DISCONNECTED` incident; `unknown` remains partial observability.
+The monitor is still read-only, network-isolated from exchanges and unable to
+enable paper capital, live execution or any order path.
+
 ## Offline shadow-provenance boundary
 
 `offline-shadow-provenance-bind` is the only supported v1 batch hand-off from

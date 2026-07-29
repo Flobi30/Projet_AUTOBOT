@@ -742,12 +742,18 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     runtime_resilience_audit.add_argument("--state-db", required=True)
     runtime_resilience_audit.add_argument("--max-data-age-seconds", type=int, default=300)
+    runtime_resilience_audit.add_argument("--max-websocket-age-seconds", type=int, default=60)
     runtime_resilience_audit.add_argument("--min-free-disk-bytes", type=int, default=2 * 1024 * 1024 * 1024)
     runtime_resilience_audit.add_argument(
         "--websocket-status",
         choices=("connected", "disconnected", "unknown"),
         default="unknown",
         help="Explicit observation only; unknown never claims a connected WebSocket",
+    )
+    runtime_resilience_audit.add_argument(
+        "--websocket-observed-at",
+        default=None,
+        help="UTC ISO-8601 time when the explicit WebSocket status was observed; connected requires it",
     )
     runtime_resilience_audit.set_defaults(handler=_cmd_runtime_resilience_audit)
 
@@ -3654,8 +3660,10 @@ def _cmd_runtime_resilience_audit(args: argparse.Namespace) -> int:
         audit_runtime_resilience(
             Path(args.state_db),
             max_data_age_seconds=args.max_data_age_seconds,
+            max_websocket_age_seconds=args.max_websocket_age_seconds,
             min_free_disk_bytes=args.min_free_disk_bytes,
             websocket_status=args.websocket_status,
+            websocket_observed_at=args.websocket_observed_at,
         ).to_dict()
     )
     return 0

@@ -23,6 +23,7 @@ from autobot.v2.research.resilience_readiness import (
 
 WebSocketStatus = Literal["connected", "disconnected", "unknown"]
 DEFAULT_MAX_DATA_AGE_SECONDS = 300
+DEFAULT_MAX_WEBSOCKET_AGE_SECONDS = 60
 DEFAULT_MIN_FREE_DISK_BYTES = 2 * 1024 * 1024 * 1024
 
 
@@ -43,6 +44,9 @@ class RuntimeResilienceAudit:
     free_disk_bytes: int | None
     min_free_disk_bytes: int
     websocket_status: WebSocketStatus
+    websocket_observed_at: str | None
+    websocket_age_seconds: float | None
+    max_websocket_age_seconds: int
     incident_types: tuple[str, ...]
     fail_closed: FailClosedIncidentSummary
     reasons: tuple[str, ...]
@@ -59,14 +63,18 @@ def audit_runtime_resilience(
     state_db: str | Path,
     *,
     max_data_age_seconds: int = DEFAULT_MAX_DATA_AGE_SECONDS,
+    max_websocket_age_seconds: int = DEFAULT_MAX_WEBSOCKET_AGE_SECONDS,
     min_free_disk_bytes: int = DEFAULT_MIN_FREE_DISK_BYTES,
     websocket_status: WebSocketStatus = "unknown",
+    websocket_observed_at: datetime | str | None = None,
     evaluated_at: datetime | None = None,
 ) -> RuntimeResilienceAudit:
     """Observe runtime readiness without creating or changing any database."""
 
     if max_data_age_seconds < 0:
         raise RuntimeResilienceAuditError("max_data_age_seconds must be non-negative")
+    if max_websocket_age_seconds < 0:
+        raise RuntimeResilienceAuditError("max_websocket_age_seconds must be non-negative")
     if min_free_disk_bytes < 0:
         raise RuntimeResilienceAuditError("min_free_disk_bytes must be non-negative")
     if websocket_status not in {"connected", "disconnected", "unknown"}:
@@ -80,6 +88,11 @@ def audit_runtime_resilience(
     latest_observed_at: str | None = None
     data_age_seconds: float | None = None
     free_disk_bytes: int | None = None
+    websocket_observed: datetime | None = None
+    websocket_age_seconds: float | None = None
+
+    if websocket_observed_at is not None:
+        websocket_observed = _parse_audit_timestamp(websocket_observed_at)
 
     try:
         free_disk_bytes = int(shutil.disk_usage(path.parent).free)
@@ -125,7 +138,19 @@ def audit_runtime_resilience(
                 incidents.append("DATA_STALE")
                 reasons.append("market_data_stale")
 
-    if websocket_status == "disconnected":
+    if websocket_status == "connected":
+        if websocket_observed is None:
+            incidents.append("WEBSOCKET_DISCONNECTED")
+            reasons.append("websocket_connected_evidence_missing")
+        else:
+            websocket_age_seconds = max(0.0, (now - websocket_observed).total_seconds())
+            if websocket_observed > now:
+                incidents.append("WEBSOCKET_DISCONNECTED")
+                reasons.append("websocket_observed_at_in_future")
+            elif websocket_age_seconds > max_websocket_age_seconds:
+                incidents.append("WEBSOCKET_DISCONNECTED")
+                reasons.append("websocket_connected_evidence_stale")
+    elif websocket_status == "disconnected":
         incidents.append("WEBSOCKET_DISCONNECTED")
         reasons.append("websocket_reported_disconnected")
     elif websocket_status == "unknown":
@@ -150,6 +175,9 @@ def audit_runtime_resilience(
         free_disk_bytes=free_disk_bytes,
         min_free_disk_bytes=min_free_disk_bytes,
         websocket_status=websocket_status,
+        websocket_observed_at=websocket_observed.isoformat() if websocket_observed else None,
+        websocket_age_seconds=websocket_age_seconds,
+        max_websocket_age_seconds=max_websocket_age_seconds,
         incident_types=summary.incident_types,
         fail_closed=summary,
         reasons=tuple(reasons),
@@ -198,3 +226,12 @@ def _parse_utc(value: str) -> datetime | None:
         return _as_utc(datetime.fromisoformat(str(value).replace("Z", "+00:00")))
     except ValueError:
         return None
+
+
+def _parse_audit_timestamp(value: datetime | str) -> datetime:
+    if isinstance(value, datetime):
+        return _as_utc(value)
+    parsed = _parse_utc(value)
+    if parsed is None:
+        raise RuntimeResilienceAuditError("websocket_observed_at must be an ISO-8601 timestamp")
+    return parsed
