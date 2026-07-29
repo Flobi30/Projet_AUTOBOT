@@ -254,6 +254,8 @@ class ShadowOMSLedger:
             stored_intent = self._load_intent(connection, intent.client_order_id)
             if _json(stored_intent) != _json(contract_to_dict(intent)):
                 raise OMSLedgerError("risk decision intent does not match registered immutable intent")
+            if decision.decided_at < datetime.fromisoformat(str(stored_intent["created_at"])):
+                raise OMSLedgerError("risk decision cannot precede registered intent creation")
             existing = connection.execute(
                 "SELECT risk_decision_id FROM oms_risk_decisions WHERE client_order_id = ?",
                 (intent.client_order_id,),
@@ -306,9 +308,12 @@ class ShadowOMSLedger:
                 risk_decision_id=risk_decision_id,
                 costs=costs,
             )
-            current = self._latest_event_type(connection, fill.client_order_id)
+            latest_event = self._latest_order_event(connection, fill.client_order_id)
+            current = latest_event[0] if latest_event is not None else None
             if current not in {"ACKNOWLEDGED", "PARTIALLY_FILLED", "UNKNOWN"}:
                 raise OMSLedgerError("fill requires acknowledged, partial or recovered-unknown order state")
+            if latest_event is None or fill.occurred_at <= latest_event[1]:
+                raise OMSLedgerError("fill timestamp must follow the latest order event")
             fill_id = str(fill.fill_id)
             connection.execute(
                 """
@@ -550,11 +555,20 @@ class ShadowOMSLedger:
 
     @staticmethod
     def _latest_event_type(connection: sqlite3.Connection, client_order_id: str) -> str | None:
+        latest = ShadowOMSLedger._latest_order_event(connection, client_order_id)
+        return latest[0] if latest is not None else None
+
+    @staticmethod
+    def _latest_order_event(
+        connection: sqlite3.Connection,
+        client_order_id: str,
+    ) -> tuple[str, datetime] | None:
         row = connection.execute(
-            "SELECT event_type FROM oms_order_events WHERE client_order_id = ? ORDER BY occurred_at DESC, event_id DESC LIMIT 1",
+            "SELECT event_type, occurred_at FROM oms_order_events "
+            "WHERE client_order_id = ? ORDER BY occurred_at DESC, event_id DESC LIMIT 1",
             (client_order_id,),
         ).fetchone()
-        return str(row[0]) if row else None
+        return (str(row[0]), datetime.fromisoformat(str(row[1]))) if row else None
 
     @staticmethod
     def _require_approved_risk_decision(
@@ -586,14 +600,20 @@ class ShadowOMSLedger:
     @staticmethod
     def _record_order_event(connection: sqlite3.Connection, event: OrderEvent) -> bool:
         intent = connection.execute(
-            "SELECT 1 FROM oms_intents WHERE client_order_id = ?", (event.client_order_id,)
+            "SELECT created_at FROM oms_intents WHERE client_order_id = ?", (event.client_order_id,)
         ).fetchone()
         if not intent:
             raise OMSLedgerError("order event requires a registered shadow intent")
+        intent_created_at = datetime.fromisoformat(str(intent[0]))
+        if event.occurred_at < intent_created_at:
+            raise OMSLedgerError("order event timestamp cannot precede intent creation")
         event_id = _event_id("order", contract_to_dict(event))
         if connection.execute("SELECT 1 FROM oms_order_events WHERE event_id = ?", (event_id,)).fetchone():
             return False
-        prior = ShadowOMSLedger._latest_event_type(connection, event.client_order_id)
+        latest_event = ShadowOMSLedger._latest_order_event(connection, event.client_order_id)
+        prior = latest_event[0] if latest_event is not None else None
+        if latest_event is not None and event.occurred_at <= latest_event[1]:
+            raise OMSLedgerError("order event timestamp must follow the latest order event")
         if prior in TERMINAL_ORDER_STATES:
             raise OMSLedgerError("terminal order cannot accept additional events")
         if event.event_type not in ALLOWED_ORDER_TRANSITIONS.get(prior, frozenset()):

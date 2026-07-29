@@ -203,7 +203,10 @@ def test_oms_ledger_blocks_invalid_lifecycle_and_reconciliation_mismatch(tmp_pat
     with pytest.raises(OMSLedgerError, match="fill requires"):
         ledger.record_fill(fill, costs=_costs())
     _acknowledge(ledger, intent)
-    assert ledger.record_fill(fill, costs=_costs())
+    assert ledger.record_fill(
+        replace(fill, occurred_at=intent.created_at + timedelta(seconds=3)),
+        costs=_costs(),
+    )
     report = ledger.reconcile(observed_positions={"BTCEUR": 0.0}, observed_open_orders=())
 
     assert report.status == "RECONCILIATION_REQUIRED"
@@ -546,3 +549,35 @@ def test_oms_ledger_rejects_order_event_when_risk_decision_is_future_dated(tmp_p
 
     with pytest.raises(OMSLedgerError, match="risk decision must be recorded before order event"):
         ledger.record_order_event(OrderEvent(intent.client_order_id, "CREATED", intent.created_at))
+
+
+def test_oms_ledger_rejects_out_of_order_events_and_fills_before_state_reconstruction(tmp_path):
+    ledger = ShadowOMSLedger(tmp_path / "oms.sqlite3")
+    intent = _intent()
+    assert ledger.register_intent(intent)
+    created_at = intent.created_at
+
+    with pytest.raises(OMSLedgerError, match="cannot precede registered intent creation"):
+        ledger.record_risk_decision(
+            intent,
+            _risk_decision(intent, decided_at=created_at - timedelta(seconds=1)),
+        )
+    assert ledger.record_risk_decision(intent, _risk_decision(intent))
+
+    assert ledger.record_order_event(OrderEvent(intent.client_order_id, "CREATED", created_at))
+    assert ledger.record_order_event(OrderEvent(intent.client_order_id, "SUBMITTED", created_at + timedelta(seconds=2)))
+    with pytest.raises(OMSLedgerError, match="must follow the latest order event"):
+        ledger.record_order_event(OrderEvent(intent.client_order_id, "ACKNOWLEDGED", created_at + timedelta(seconds=1)))
+
+    acknowledged_at = created_at + timedelta(seconds=3)
+    assert ledger.record_order_event(OrderEvent(intent.client_order_id, "ACKNOWLEDGED", acknowledged_at))
+    with pytest.raises(OMSLedgerError, match="fill timestamp must follow"):
+        ledger.record_fill(
+            FillEvent(intent.client_order_id, "fill-out-of-order", acknowledged_at, 1.0, 100.0, 0.16),
+            costs=_costs(),
+        )
+
+    assert ledger.record_fill(
+        FillEvent(intent.client_order_id, "fill-ordered", acknowledged_at + timedelta(seconds=1), 1.0, 100.0, 0.16),
+        costs=_costs(),
+    )

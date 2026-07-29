@@ -69,6 +69,15 @@ assessment time. Missing evidence produces `WATCH`, while an adverse score can
 only reduce, disable new entries or quarantine an artifact. It can never relax
 risk, promote a strategy, enable paper capital or enable live trading.
 
+## Hermetic OMS time ordering
+
+The research/shadow OMS ledger requires a strictly chronological contract
+sequence: the risk decision cannot predate its registered intent; each new
+order event must follow the previous order event; and each fill must follow an
+acknowledged, partial or recovered-unknown state. Out-of-order evidence is
+rejected before it can influence state reconstruction, reconciliation or TCA.
+This remains a hermetic research model, not the runtime order router.
+
 ## Offline shadow-provenance boundary
 
 `offline-shadow-provenance-bind` is the only supported v1 batch hand-off from
