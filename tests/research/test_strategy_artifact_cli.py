@@ -23,6 +23,16 @@ from autobot.v2.research.strategy_risk_mandates import load_strategy_risk_mandat
 pytestmark = pytest.mark.unit
 
 
+def _complete_statistical_metrics(*, trade_count: int, trial_count: int) -> dict[str, object]:
+    return {
+        "probabilistic_sharpe": {"sample_count": trade_count, "acceptable": True, "research_only": True, "paper_candidate_allowed": False, "live_promotion_allowed": False},
+        "deflated_sharpe": {"sample_count": trade_count, "assumed_trial_count": trial_count, "acceptable": True, "research_only": True, "paper_candidate_allowed": False, "live_promotion_allowed": False},
+        "robustness": {"trade_count": trade_count, "monte_carlo": {"sample_count": trade_count}, "verdict": "observation_ready_not_promoted", "research_only": True, "paper_candidate_allowed": False, "live_promotion_allowed": False},
+        "statistical_gate": {"decision": "SHADOW_REVIEW_ELIGIBLE", "blockers": [], "trade_count": trade_count, "trial_count": trial_count, "shadow_review_eligible": True, "research_only": True, "paper_capital_allowed": False, "live_allowed": False, "promotable": False},
+        "statistical_gate_decision": "SHADOW_REVIEW_ELIGIBLE",
+    }
+
+
 def _passed_gate_evidence(
     stage: str,
     *,
@@ -46,10 +56,7 @@ def _passed_gate_evidence(
             "assumed_trial_count": 1,
             "trial_scope_id": artifact.trial_scope_id,
             "statistical_validation_artifact": artifact.to_dict(),
-            "probabilistic_sharpe": {"acceptable": True},
-            "deflated_sharpe": {"acceptable": True},
-            "robustness": {"verdict": "observation_ready_not_promoted"},
-            "statistical_gate_decision": "SHADOW_REVIEW_ELIGIBLE",
+            **_complete_statistical_metrics(trade_count=50, trial_count=1),
         }
     return {
         "metrics": metrics,

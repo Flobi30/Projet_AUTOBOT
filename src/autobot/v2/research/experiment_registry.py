@@ -43,7 +43,9 @@ REQUIRED_PASSED_METRIC_KEYS = {
             "probabilistic_sharpe",
             "deflated_sharpe",
             "robustness",
+            "statistical_gate",
             "statistical_gate_decision",
+            "statistical_evidence_fingerprint",
         }
     ),
 }
@@ -583,9 +585,14 @@ class ExperimentRegistry:
         status = str(status).upper()
         if status not in {PASS_STATUS, *TERMINAL_STATUSES}:
             raise ExperimentRegistryError("gate status must be PASSED, REJECTED or INSUFFICIENT_DATA")
-        metrics_json = _json(metrics or {})
+        if metrics is not None and not isinstance(metrics, Mapping):
+            raise ExperimentRegistryError("gate metrics must be a mapping when supplied")
+        metrics_payload = dict(metrics or {})
+        if stage == "STRESS_MONTE_CARLO" and status == PASS_STATUS and metrics_payload:
+            _attach_statistical_evidence_fingerprint(metrics_payload)
+        metrics_json = _json(metrics_payload)
         reasons_json = _json(list(reasons))
-        transition_id = f"gate_{_fingerprint({'experiment_id': experiment_id, 'stage': stage, 'status': status, 'metrics': metrics or {}, 'reasons': list(reasons)})[:20]}"
+        transition_id = f"gate_{_fingerprint({'experiment_id': experiment_id, 'stage': stage, 'status': status, 'metrics': metrics_payload, 'reasons': list(reasons)})[:20]}"
         expected_artifact_ids = frozenset(
             self._artifact_id(experiment_id=experiment_id, stage=stage, artifact=artifact)
             for artifact in artifacts
@@ -629,12 +636,12 @@ class ExperimentRegistry:
             if existing_stage is not None:
                 raise ExperimentRegistryError("gate stage is already recorded with different evidence")
             if status == PASS_STATUS:
-                _validate_passed_stage_evidence(stage=stage, metrics=metrics, artifacts=artifacts)
+                _validate_passed_stage_evidence(stage=stage, metrics=metrics_payload, artifacts=artifacts)
                 if stage == "STRESS_MONTE_CARLO":
                     self._validate_statistical_validation_artifact(
                         connection,
                         experiment_id=experiment_id,
-                        metrics=metrics,
+                        metrics=metrics_payload,
                     )
             if stage == STAGES[-1] and status == PASS_STATUS:
                 self._require_final_holdout_review(connection, experiment_id=experiment_id)
@@ -707,6 +714,10 @@ class ExperimentRegistry:
                 continue
             metrics = dict(getattr(gate, "metrics", {}) or {})
             if stage == "STRESS_MONTE_CARLO" and status == PASS_STATUS:
+                if not isinstance(metrics.get("statistical_gate"), Mapping):
+                    gate_artifacts = getattr(gate, "artifacts", {}) or {}
+                    if isinstance(gate_artifacts, Mapping) and isinstance(gate_artifacts.get("statistical_gate"), Mapping):
+                        metrics["statistical_gate"] = dict(gate_artifacts["statistical_gate"])
                 assumed_trial_count = metrics.get("assumed_trial_count")
                 if isinstance(assumed_trial_count, bool) or not isinstance(assumed_trial_count, int):
                     raise ExperimentRegistryError("STRESS_MONTE_CARLO assumed_trial_count must be an integer")
@@ -1055,6 +1066,7 @@ class ExperimentRegistry:
             raise ExperimentRegistryError(str(exc)) from exc
         if artifact.to_dict() != expected.to_dict():
             raise ExperimentRegistryError("statistical validation artifact does not match append-only registry evidence")
+        _validate_statistical_evidence_fingerprint(metrics)
 
     def has_final_holdout_review(self, experiment_id: str) -> bool:
         """Return whether immutable final-holdout evidence exists for one experiment."""
@@ -1821,6 +1833,125 @@ def _validate_passed_stage_evidence(
             raise ExperimentRegistryError(
                 f"{stage} PASSED artifact fingerprint must be a SHA-256 digest"
             )
+
+
+def _attach_statistical_evidence_fingerprint(metrics: dict[str, Any]) -> None:
+    """Seal serialized PSR/DSR/robustness evidence before a passed stress gate.
+
+    The registry cannot recompute statistics without the OOS trade sequence,
+    but it can enforce that every serialized diagnostic describes the same
+    sample and multiple-testing count as the immutable transition.  The
+    resulting fingerprint makes that exact evidence visible in the append-only
+    transition and rejects a later mismatched retry.
+    """
+
+    fingerprint = _statistical_evidence_fingerprint(metrics)
+    supplied = str(metrics.get("statistical_evidence_fingerprint") or "").strip().lower()
+    if supplied and supplied != fingerprint:
+        raise ExperimentRegistryError("statistical evidence fingerprint does not match serialized evidence")
+    metrics["statistical_evidence_fingerprint"] = fingerprint
+
+
+def _validate_statistical_evidence_fingerprint(metrics: Mapping[str, Any]) -> None:
+    supplied = str(metrics.get("statistical_evidence_fingerprint") or "").strip().lower()
+    expected = _statistical_evidence_fingerprint(metrics)
+    if supplied != expected:
+        raise ExperimentRegistryError("statistical evidence fingerprint does not match serialized evidence")
+
+
+def _statistical_evidence_fingerprint(metrics: Mapping[str, Any]) -> str:
+    """Validate and fingerprint one passed statistical-gate payload.
+
+    This is deliberately a serialization contract, not a second statistical
+    implementation.  It prevents the DSR, PSR, robustness report and
+    consolidated gate from silently referring to different samples or trial
+    counts between the runner and the append-only experiment registry.
+    """
+
+    trade_count = _positive_metric_int(metrics.get("trade_count"), "trade_count")
+    trial_count = _positive_metric_int(metrics.get("assumed_trial_count"), "assumed_trial_count")
+    deflated = _required_metric_mapping(metrics, "deflated_sharpe")
+    probabilistic = _required_metric_mapping(metrics, "probabilistic_sharpe")
+    robustness = _required_metric_mapping(metrics, "robustness")
+    summary = _required_metric_mapping(metrics, "statistical_gate")
+
+    if _positive_metric_int(deflated.get("sample_count"), "deflated_sharpe.sample_count") != trade_count:
+        raise ExperimentRegistryError("deflated_sharpe sample_count must match trade_count")
+    if _positive_metric_int(deflated.get("assumed_trial_count"), "deflated_sharpe.assumed_trial_count") != trial_count:
+        raise ExperimentRegistryError("deflated_sharpe assumed_trial_count must match assumed_trial_count")
+    if _positive_metric_int(probabilistic.get("sample_count"), "probabilistic_sharpe.sample_count") != trade_count:
+        raise ExperimentRegistryError("probabilistic_sharpe sample_count must match trade_count")
+    if _positive_metric_int(robustness.get("trade_count"), "robustness.trade_count") != trade_count:
+        raise ExperimentRegistryError("robustness trade_count must match trade_count")
+    monte_carlo = _required_metric_mapping(robustness, "monte_carlo")
+    if _positive_metric_int(monte_carlo.get("sample_count"), "robustness.monte_carlo.sample_count") != trade_count:
+        raise ExperimentRegistryError("robustness monte_carlo sample_count must match trade_count")
+    if _positive_metric_int(summary.get("trade_count"), "statistical_gate.trade_count") != trade_count:
+        raise ExperimentRegistryError("statistical gate trade_count must match trade_count")
+    if _positive_metric_int(summary.get("trial_count"), "statistical_gate.trial_count") != trial_count:
+        raise ExperimentRegistryError("statistical gate trial_count must match assumed_trial_count")
+
+    _require_metric_flags(deflated, "deflated_sharpe", paper_key="paper_candidate_allowed", live_key="live_promotion_allowed")
+    _require_metric_flags(probabilistic, "probabilistic_sharpe", paper_key="paper_candidate_allowed", live_key="live_promotion_allowed")
+    _require_metric_flags(robustness, "robustness", paper_key="paper_candidate_allowed", live_key="live_promotion_allowed")
+    _require_metric_flags(summary, "statistical_gate", paper_key="paper_capital_allowed", live_key="live_allowed")
+
+    if deflated.get("acceptable") is not True:
+        raise ExperimentRegistryError("deflated_sharpe must be acceptable for a passed stress gate")
+    if probabilistic.get("acceptable") is not True:
+        raise ExperimentRegistryError("probabilistic_sharpe must be acceptable for a passed stress gate")
+    if str(robustness.get("verdict") or "") != "observation_ready_not_promoted":
+        raise ExperimentRegistryError("robustness verdict must remain observation_ready_not_promoted")
+    decision = str(metrics.get("statistical_gate_decision") or "").strip()
+    if decision != "SHADOW_REVIEW_ELIGIBLE" or str(summary.get("decision") or "").strip() != decision:
+        raise ExperimentRegistryError("statistical gate decision must be SHADOW_REVIEW_ELIGIBLE and match its summary")
+    if summary.get("shadow_review_eligible") is not True:
+        raise ExperimentRegistryError("statistical gate summary must confirm shadow review eligibility")
+    blockers = summary.get("blockers")
+    if not isinstance(blockers, (list, tuple)) or blockers:
+        raise ExperimentRegistryError("passed statistical gate summary cannot carry blockers")
+
+    return _fingerprint(
+        {
+            "schema_version": 1,
+            "trade_count": trade_count,
+            "assumed_trial_count": trial_count,
+            "trial_scope_id": str(metrics.get("trial_scope_id") or "").strip().lower(),
+            "deflated_sharpe": dict(deflated),
+            "probabilistic_sharpe": dict(probabilistic),
+            "robustness": dict(robustness),
+            "statistical_gate": dict(summary),
+            "statistical_gate_decision": decision,
+        }
+    )
+
+
+def _required_metric_mapping(payload: Mapping[str, Any], field_name: str) -> Mapping[str, Any]:
+    value = payload.get(field_name)
+    if not isinstance(value, Mapping):
+        raise ExperimentRegistryError(f"{field_name} must be a mapping")
+    return value
+
+
+def _positive_metric_int(value: Any, field_name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ExperimentRegistryError(f"{field_name} must be a positive integer")
+    return value
+
+
+def _require_metric_flags(
+    payload: Mapping[str, Any],
+    field_name: str,
+    *,
+    paper_key: str,
+    live_key: str,
+) -> None:
+    if payload.get("research_only") is not True:
+        raise ExperimentRegistryError(f"{field_name} must remain research_only")
+    if payload.get(paper_key) is not False or payload.get(live_key) is not False:
+        raise ExperimentRegistryError(f"{field_name} cannot authorize paper or live")
+    if field_name == "statistical_gate" and payload.get("promotable") is not False:
+        raise ExperimentRegistryError("statistical_gate cannot be promotable")
 
 
 def _runner_report_artifacts(report: Any) -> tuple[dict[str, Any], ...]:
