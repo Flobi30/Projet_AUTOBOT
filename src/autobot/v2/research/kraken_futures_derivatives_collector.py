@@ -25,6 +25,7 @@ from .derivatives_basis_contract import (
     KRAKEN_FUTURES_FUTURE_BASIS,
     is_verified_basis_confidence,
 )
+from .public_collector_boundary import assert_public_collector_boundary
 
 
 KRAKEN_FUTURES_BASE_URL = "https://futures.kraken.com"
@@ -373,6 +374,7 @@ def collect_kraken_futures_derivatives(
 ) -> KrakenFuturesCollectionResult:
     """Collect a bounded Kraken Futures derivatives research snapshot."""
 
+    assert_public_collector_boundary(("kraken_futures_derivatives_collector",))
     api = client or KrakenFuturesPublicClient(timeout_seconds=config.timeout_seconds)
     collection_time = _collection_time(config)
     raw_run_dir = config.raw_dir / config.run_id

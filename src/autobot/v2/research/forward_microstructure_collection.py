@@ -20,6 +20,7 @@ from .canonical_microstructure_store import (
     build_canonical_microstructure_snapshot,
 )
 from .kraken_symbol_mapping import AssetPairsFetcher
+from .public_collector_boundary import assert_public_collector_boundary
 from .spread_depth_recorder import DepthFetcher, SpreadDepthRecorderConfig, SpreadDepthRecorderResult, record_spread_depth
 
 
@@ -84,6 +85,7 @@ def collect_forward_microstructure(
     fetcher: DepthFetcher | None = None,
     asset_pairs_fetcher: AssetPairsFetcher | None = None,
 ) -> ForwardMicrostructureCollectionResult:
+    assert_public_collector_boundary(("forward_microstructure_collection",))
     recorder = record_spread_depth(
         SpreadDepthRecorderConfig(
             run_id=config.run_id,

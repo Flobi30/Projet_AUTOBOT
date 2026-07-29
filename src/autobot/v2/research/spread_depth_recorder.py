@@ -23,6 +23,7 @@ from .kraken_symbol_mapping import (
     KrakenPublicPairMapping,
     preflight_kraken_public_symbols,
 )
+from .public_collector_boundary import assert_public_collector_boundary
 from .symbol_normalization import normalize_research_symbol
 
 
@@ -141,6 +142,7 @@ def record_spread_depth(
     monotonic_clock: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
 ) -> SpreadDepthRecorderResult:
+    assert_public_collector_boundary(("spread_depth_recorder",))
     fetch = fetcher or fetch_kraken_depth_page
     mapping_by_symbol, collection_symbols = _resolve_collection_symbols(
         config.symbols,

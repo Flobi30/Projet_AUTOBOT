@@ -30,6 +30,7 @@ from .kraken_symbol_mapping import (
     preflight_kraken_public_symbols,
 )
 from .market_data_repository import MarketBar, MarketDataRepository
+from .public_collector_boundary import assert_public_collector_boundary
 from .symbol_normalization import normalize_research_symbol
 
 
@@ -164,6 +165,7 @@ def collect_historical_ohlcv(
 ) -> HistoricalDataCollectionResult:
     """Collect public OHLCV and write CSV/Parquet research datasets."""
 
+    assert_public_collector_boundary(("historical_data_collector",))
     repository = MarketDataRepository()
     fetch = fetcher or fetch_kraken_ohlc_page
     output_dir = Path(config.output_dir)

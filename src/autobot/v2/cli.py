@@ -143,6 +143,12 @@ def _build_parser() -> argparse.ArgumentParser:
     collect_research_daily.add_argument("--run-id", required=True)
     collect_research_daily.set_defaults(handler=_cmd_collect_research_daily)
 
+    audit_public_collector_boundary = subparsers.add_parser(
+        "audit-public-collector-boundary",
+        help="Read-only AST audit: public data collectors must not reference private credentials or execution paths",
+    )
+    audit_public_collector_boundary.set_defaults(handler=_cmd_audit_public_collector_boundary)
+
     collect_microstructure_forward = subparsers.add_parser(
         "collect-microstructure-forward",
         help="Capture bounded public Kraken top-of-book data into research-only canonical storage",
@@ -1815,6 +1821,13 @@ def _cmd_collect_research_daily(args: argparse.Namespace) -> int:
         run_id=args.run_id,
     )
     _print_json(result.to_dict())
+    return 0
+
+
+def _cmd_audit_public_collector_boundary(_args: argparse.Namespace) -> int:
+    from autobot.v2.research.public_collector_boundary import assert_public_collector_boundary
+
+    _print_json(assert_public_collector_boundary().to_dict())
     return 0
 
 
