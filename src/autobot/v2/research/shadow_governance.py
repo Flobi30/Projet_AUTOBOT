@@ -608,6 +608,40 @@ class ShadowSafetyDecision:
     live_allowed: bool = False
     automatic_promotion_allowed: bool = False
 
+    def __post_init__(self) -> None:
+        """Make a safety decision structurally incapable of relaxing risk.
+
+        ``apply_shadow_safety`` and the append-only registry accept a decision
+        object as an external boundary.  They must not rely solely on callers
+        using :func:`decide_shadow_safety`: a forged ``REDUCE`` decision with a
+        ``SHADOW`` next status would otherwise be able to relabel an artifact
+        as less restricted.  Safety decisions are therefore self-validating
+        research facts, never execution permissions.
+        """
+
+        action = _validate_action(self.action)
+        expected_status = _status_for_action(action)
+        next_status = str(self.next_artifact_status or "").strip().upper()
+        if next_status != expected_status:
+            raise ShadowGovernanceError(
+                "shadow safety decision next_artifact_status must match its action"
+            )
+        reasons = tuple(str(reason).strip() for reason in self.reasons)
+        if not reasons or any(not reason for reason in reasons):
+            raise ShadowGovernanceError("shadow safety decision requires non-empty reasons")
+        if (
+            self.risk_increase_allowed
+            or self.paper_capital_allowed
+            or self.live_allowed
+            or self.automatic_promotion_allowed
+        ):
+            raise ShadowGovernanceError(
+                "shadow safety decision cannot permit risk increase, paper, live or promotion"
+            )
+        object.__setattr__(self, "action", action)
+        object.__setattr__(self, "next_artifact_status", next_status)
+        object.__setattr__(self, "reasons", reasons)
+
 
 class StrategyArtifactRegistry:
     """Append-only source of truth for versioned research/shadow artifacts."""

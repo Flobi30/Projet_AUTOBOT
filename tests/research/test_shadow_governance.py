@@ -17,6 +17,7 @@ from autobot.v2.research.shadow_governance import (
     ShadowGovernanceError,
     ShadowObservation,
     ShadowPerformanceWindow,
+    ShadowSafetyDecision,
     ShadowSafetyPolicy,
     StrategyArtifactRegistry,
     StrategyArtifact,
@@ -538,6 +539,30 @@ def test_shadow_safety_only_escalates_risk_reduction_and_cannot_start_shadow():
     assert quarantine.risk_increase_allowed is False
     assert quarantine.paper_capital_allowed is False
     assert quarantine.live_allowed is False
+
+
+def test_shadow_safety_decision_rejects_forged_status_or_permission_relaxation():
+    with pytest.raises(ShadowGovernanceError, match="next_artifact_status"):
+        ShadowSafetyDecision(
+            action="REDUCE",
+            reasons=("adverse_cost_drift",),
+            next_artifact_status="SHADOW",
+        )
+
+    with pytest.raises(ShadowGovernanceError, match="cannot permit risk increase"):
+        ShadowSafetyDecision(
+            action="WATCH",
+            reasons=("insufficient_shadow_sample",),
+            next_artifact_status="SHADOW",
+            risk_increase_allowed=True,
+        )
+
+    with pytest.raises(ShadowGovernanceError, match="requires non-empty reasons"):
+        ShadowSafetyDecision(
+            action="QUARANTINE",
+            reasons=(),
+            next_artifact_status="QUARANTINED",
+        )
 
 
 def test_shadow_cost_drift_can_only_reduce_or_block_the_shadow_envelope():
