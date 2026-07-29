@@ -74,7 +74,7 @@ def test_real_cancel_order_is_blocked_without_explicit_authorization(monkeypatch
     asyncio.run(_run())
 
 
-def test_real_mutation_requires_all_explicit_flags(monkeypatch):
+def test_program_execution_lock_blocks_real_mutation_even_with_every_legacy_flag(monkeypatch):
     async def _run():
         for name, value in {
             "PAPER_TRADING": "false",
@@ -85,6 +85,10 @@ def test_real_mutation_requires_all_explicit_flags(monkeypatch):
         }.items():
             monkeypatch.setenv(name, value)
 
+        monkeypatch.setattr(
+            "autobot.v2.order_executor_async.reject_private_execution_component",
+            lambda _component: None,
+        )
         executor = OrderExecutorAsync(api_key="test-key", api_secret="c2VjcmV0")
         calls = []
 
@@ -96,9 +100,9 @@ def test_real_mutation_requires_all_explicit_flags(monkeypatch):
         monkeypatch.setattr(executor, "_rate_limit", lambda: asyncio.sleep(0))
         success, response = await executor._safe_api_call("CancelOrder", txid="test")
 
-        assert success is True
-        assert response["result"]["count"] == 1
-        assert calls == [("CancelOrder", {"txid": "test"})]
+        assert success is False
+        assert response["error_code"] == "REAL_ORDER_MUTATION_BLOCKED"
+        assert calls == []
 
     asyncio.run(_run())
 

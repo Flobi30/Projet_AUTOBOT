@@ -38,6 +38,7 @@ from autobot.v2.runtime_execution_mode import (
     ObservationOnlyExecutionComponentDisabled,
     observation_only_runtime,
     paper_execution_authorized,
+    program_execution_locked,
     runtime_exchange_credentials,
 )
 from autobot.v2.startup_attestation import StartupAttestation, _CheckOutcome
@@ -48,7 +49,7 @@ from autobot.v2.websocket_client import KrakenWebSocket, WebSocketMultiplexer
 pytestmark = pytest.mark.unit
 
 
-def test_paper_execution_requires_every_explicit_guard(monkeypatch):
+def test_program_execution_lock_overrides_every_paper_and_live_flag(monkeypatch):
     monkeypatch.setenv("PAPER_TRADING", "true")
     monkeypatch.setenv("PAPER_EXECUTION_ADAPTER_ENABLED", "true")
     monkeypatch.setenv("PAPER_EXECUTION_ROUTER_ENABLED", "true")
@@ -59,15 +60,19 @@ def test_paper_execution_requires_every_explicit_guard(monkeypatch):
     assert observation_only_runtime() is True
 
     monkeypatch.setenv("PAPER_TEST_TRADING_ENABLED", "true")
-    assert paper_execution_authorized() is True
-    assert observation_only_runtime() is False
-
-    monkeypatch.setenv("AUTOBOT_OBSERVATION_ONLY_RUNTIME", "true")
+    assert program_execution_locked() is True
+    assert paper_execution_authorized() is False
     assert observation_only_runtime() is True
 
-    monkeypatch.setenv("AUTOBOT_OBSERVATION_ONLY_RUNTIME", "false")
-    monkeypatch.setenv("PAPER_TEST_TRADING_ENABLED", "false")
-    assert paper_execution_authorized() is False
+    for name, value in {
+        "PAPER_TRADING": "false",
+        "LIVE_TRADING_CONFIRMATION": "true",
+        "STRATEGY_ROUTER_LIVE_ENABLED": "true",
+        "AUTOBOT_REAL_ORDER_EXECUTION_ENABLED": "true",
+        "PREFLIGHT_ONLY": "false",
+        "AUTOBOT_OBSERVATION_ONLY_RUNTIME": "false",
+    }.items():
+        monkeypatch.setenv(name, value)
     assert observation_only_runtime() is True
 
 
@@ -99,7 +104,7 @@ def test_observation_runtime_defaults_closed_until_an_execution_authorization_is
         "PREFLIGHT_ONLY": "false",
     }.items():
         monkeypatch.setenv(name, value)
-    assert observation_only_runtime() is False
+    assert observation_only_runtime() is True
 
     # The explicit lock remains authoritative even over a complete future
     # authorization configuration.
@@ -174,6 +179,33 @@ def test_direct_observation_orchestrator_never_forwards_credentials_to_public_we
     assert orchestrator.ring_dispatcher._ws.api_secret is None
     assert "KRAKEN_API_KEY" not in os.environ
     assert "KRAKEN_API_SECRET" not in os.environ
+
+
+def test_orchestrator_program_lock_overrides_complete_legacy_paper_configuration(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    for name, value in {
+        "AUTOBOT_OBSERVATION_ONLY_RUNTIME": "false",
+        "PAPER_TRADING": "true",
+        "PAPER_EXECUTION_ADAPTER_ENABLED": "true",
+        "PAPER_EXECUTION_ROUTER_ENABLED": "true",
+        "PAPER_TEST_TRADING_ENABLED": "true",
+        "KRAKEN_API_KEY": "environment-key-must-not-survive",
+        "KRAKEN_API_SECRET": "environment-secret-must-not-survive",
+    }.items():
+        monkeypatch.setenv(name, value)
+
+    orchestrator = OrchestratorAsync(
+        api_key="argument-key-must-not-survive",
+        api_secret="argument-secret-must-not-survive",
+    )
+
+    assert orchestrator.paper_mode is True
+    assert orchestrator.paper_execution_enabled is False
+    assert orchestrator.observation_only_runtime is True
+    assert isinstance(orchestrator.order_executor, ObservationOnlyOrderExecutor)
+    assert orchestrator.api_key is None
+    assert orchestrator.api_secret is None
+    assert not (tmp_path / "data" / "paper_trades.db").exists()
 
 
 def test_public_websocket_components_discard_legacy_credential_arguments():
@@ -260,6 +292,21 @@ def test_executor_selection_fails_closed_without_full_paper_authorization(monkey
         paper_mode=True,
         observation_only=False,
         paper_execution_enabled=False,
+        api_key="must_not_be_used",
+        api_secret="must_not_be_used",
+    )
+
+    assert isinstance(executor, ObservationOnlyOrderExecutor)
+    assert mode == "observation_only"
+    assert not (tmp_path / "data" / "paper_trades.db").exists()
+
+
+def test_executor_selection_cannot_bypass_program_lock_with_paper_arguments(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    executor, mode = _build_runtime_order_executor(
+        paper_mode=True,
+        observation_only=False,
+        paper_execution_enabled=True,
         api_key="must_not_be_used",
         api_secret="must_not_be_used",
     )

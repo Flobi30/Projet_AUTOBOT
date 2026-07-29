@@ -181,6 +181,7 @@ from .strategy_runtime_policy import GRID_RUNTIME_RETIRED_REASON, retired_grid_s
 from .runtime_execution_mode import (
     observation_only_runtime,
     paper_execution_authorized,
+    program_execution_locked,
     reject_private_execution_component,
     runtime_exchange_credentials,
 )
@@ -216,7 +217,7 @@ def _build_runtime_order_executor(
 ) -> tuple[Any, str]:
     """Select one executor without allowing a paper-mode fallback to orders."""
 
-    if observation_only or (paper_mode and not paper_execution_enabled):
+    if program_execution_locked() or observation_only or (paper_mode and not paper_execution_enabled):
         return ObservationOnlyOrderExecutor(), "observation_only"
     if paper_mode:
         _require_paper_executor(True)

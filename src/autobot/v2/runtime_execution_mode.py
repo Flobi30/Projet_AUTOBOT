@@ -10,7 +10,10 @@ from __future__ import annotations
 
 import os
 
-from .execution_authorization import real_order_mutation_authorized
+from .execution_authorization import (
+    program_execution_locked,
+    real_order_mutation_authorized,
+)
 
 
 _TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
@@ -37,20 +40,24 @@ def env_enabled(name: str, default: bool = False) -> bool:
 def paper_execution_authorized() -> bool:
     """Return true only for an intentionally enabled paper execution path."""
 
-    return env_enabled("PAPER_TRADING") and all(env_enabled(name) for name in _PAPER_EXECUTION_GUARDS)
+    return (
+        not program_execution_locked()
+        and env_enabled("PAPER_TRADING")
+        and all(env_enabled(name) for name in _PAPER_EXECUTION_GUARDS)
+    )
 
 
 def observation_only_runtime() -> bool:
     """Return whether the running service must have no order-capable executor.
 
-    ``AUTOBOT_OBSERVATION_ONLY_RUNTIME`` is an explicit deployment lock. If it
-    is true, it always wins. A false value is not an execution authorization.
-    When the variable is absent, fail closed: a private executor is permitted
-    only after the complete paper or real-mutation authorization has been
-    deliberately provided. This prevents an incomplete deployment environment
-    from silently selecting the legacy private-client path.
+    The programme-level research/shadow lock always wins.  A future paper or
+    live service must be introduced as a separately reviewed source change;
+    neither a false observation variable nor a complete legacy flag set can
+    authorize execution from this runtime.
     """
 
+    if program_execution_locked():
+        return True
     explicit = os.getenv("AUTOBOT_OBSERVATION_ONLY_RUNTIME")
     if explicit is not None and explicit.strip().lower() in _TRUE_VALUES:
         return True

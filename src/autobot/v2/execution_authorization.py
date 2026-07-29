@@ -7,17 +7,28 @@ import os
 
 MUTATING_PRIVATE_METHODS = frozenset({"AddOrder", "CancelOrder"})
 REAL_ORDER_MUTATION_BLOCKED = "REAL_ORDER_MUTATION_BLOCKED"
+PROGRAM_EXECUTION_LOCKED = True
 REAL_ORDER_MUTATION_BLOCKED_MESSAGE = (
-    "Real order mutations require PAPER_TRADING=false, "
-    "LIVE_TRADING_CONFIRMATION=true, "
-    "STRATEGY_ROUTER_LIVE_ENABLED=true, "
-    "AUTOBOT_REAL_ORDER_EXECUTION_ENABLED=true, and "
-    "PREFLIGHT_ONLY=false"
+    "Real order mutations are disabled while AUTOBOT is locked to "
+    "research/shadow-only mode. Runtime flags alone cannot authorize "
+    "paper or live execution."
 )
 
 
 def _env_true(name: str) -> bool:
     return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def program_execution_locked() -> bool:
+    """Return the programme-level non-execution lock.
+
+    The 24-layer programme deliberately delivers research and shadow evidence
+    only.  Releasing this lock requires a separately reviewed source change;
+    environment variables must never turn a research deployment into a paper
+    or live execution service.
+    """
+
+    return PROGRAM_EXECUTION_LOCKED
 
 
 def real_order_mutation_authorized() -> bool:
@@ -27,7 +38,7 @@ def real_order_mutation_authorized() -> bool:
     ``CancelOrder`` calls. It defaults to false and is intentionally stricter
     than startup attestation.
     """
-    return (
+    return not program_execution_locked() and (
         not _env_true("PAPER_TRADING")
         and _env_true("LIVE_TRADING_CONFIRMATION")
         and _env_true("STRATEGY_ROUTER_LIVE_ENABLED")

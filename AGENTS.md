@@ -10,6 +10,9 @@ Runtime data and dashboards are observations, not policy.
 
 - Keep live trading, paper capital and automatic promotion disabled unless the
   user explicitly authorizes a separate change.
+- `PROGRAM_EXECUTION_LOCKED` keeps the programme research/shadow-only. Do not
+  add an environment-only bypass; lifting it requires a separately reviewed
+  source change, human paper review and fresh VPS evidence.
 - A strategy produces signals only. It cannot create fills, manage capital or
   bypass independent risk review.
 - `OrderIntent` is non-executable. Only `RiskDecision` may lead to an

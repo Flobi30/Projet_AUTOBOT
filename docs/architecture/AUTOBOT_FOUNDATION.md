@@ -151,3 +151,9 @@ research decision, deployment proof or reproducibility requirement.
 Blocks 0-5 are research and shadow only. They must not enable live trading,
 paper capital, automatic promotion, sizing/leverage changes or runtime order
 submission.
+
+`PROGRAM_EXECUTION_LOCKED` is the code-level enforcement of that scope.  It
+keeps the active runtime observation-only and rejects private order mutations
+even if a legacy deployment supplies every former paper/live environment flag.
+Lifting it is a separately reviewed source change, never an environment-only
+operation.
