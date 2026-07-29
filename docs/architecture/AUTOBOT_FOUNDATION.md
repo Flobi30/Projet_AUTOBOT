@@ -126,6 +126,19 @@ non-signalling observation strategy. A future canonical shadow-artifact
 consumer must be implemented and separately verified before a runtime strategy
 can emit signals; configuration alone cannot bypass that gate.
 
+## Registry-bound statistical validation
+
+Every passed `STRESS_MONTE_CARLO` transition must carry a
+`StatisticalValidationArtifact`.  The artifact is built from the append-only
+experiment registry after its bounded candidate plan has been recorded.  Its
+effective multiple-testing count may be stricter than the registry floor, but
+it can never be lower.  The registry re-computes the floor and rejects a
+mismatched experiment, scope, fingerprint or count before recording the gate.
+
+This is evidence for research only.  It cannot create a strategy artifact,
+start shadow runtime, increase risk, enable paper capital, promote a strategy
+or enable live trading.
+
 ## 24-layer coverage baseline
 
 The machine-readable matrix is `docs/architecture/layer_coverage.json`.

@@ -34,16 +34,29 @@ from autobot.v2.research.shadow_governance import (
 pytestmark = pytest.mark.unit
 
 
-def _passed_gate_evidence(stage: str) -> dict[str, object]:
+def _passed_gate_evidence(
+    stage: str,
+    *,
+    registry: ExperimentRegistry | None = None,
+    experiment_id: str | None = None,
+) -> dict[str, object]:
     metrics: dict[str, object] = {}
     if stage == "NET_SMOKE":
         metrics = {"adapter_decision": "KEEP_RESEARCH", "variant_count": 1}
     elif stage == "WALK_FORWARD":
         metrics = {"trade_count": 50, "net_pnl_eur": 1.0}
     elif stage == "STRESS_MONTE_CARLO":
+        if registry is None or experiment_id is None:
+            raise ValueError("stress gate evidence requires its experiment registry")
+        artifact = registry.build_statistical_validation_artifact(
+            experiment_id=experiment_id,
+            effective_trial_count=1,
+        )
         metrics = {
             "trade_count": 50,
             "assumed_trial_count": 1,
+            "trial_scope_id": artifact.trial_scope_id,
+            "statistical_validation_artifact": artifact.to_dict(),
             "probabilistic_sharpe": {"acceptable": True},
             "deflated_sharpe": {"acceptable": True},
             "robustness": {"verdict": "observation_ready_not_promoted"},
@@ -241,7 +254,7 @@ def _passed_experiment_registry(tmp_path) -> tuple[ExperimentRegistry, str]:
             experiment_id=state.experiment_id,
             stage=stage,
             status="PASSED",
-            **_passed_gate_evidence(stage),
+            **_passed_gate_evidence(stage, registry=registry, experiment_id=state.experiment_id),
         )
     registry.record_final_holdout_review(
         experiment_id=state.experiment_id,
@@ -465,7 +478,7 @@ def test_shadow_artifact_factory_refuses_experiment_without_point_in_time_featur
             experiment_id=state.experiment_id,
             stage=stage,
             status="PASSED",
-            **_passed_gate_evidence(stage),
+            **_passed_gate_evidence(stage, registry=registry, experiment_id=state.experiment_id),
         )
     registry.record_final_holdout_review(
         experiment_id=state.experiment_id,

@@ -33,6 +33,8 @@ REQUIRED_PASSED_METRIC_KEYS = {
         {
             "trade_count",
             "assumed_trial_count",
+            "trial_scope_id",
+            "statistical_validation_artifact",
             "probabilistic_sharpe",
             "deflated_sharpe",
             "robustness",
@@ -144,6 +146,80 @@ class ExperimentState:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+@dataclass(frozen=True)
+class StatisticalValidationArtifact:
+    """Immutable multiple-testing evidence for one material experiment.
+
+    The registry owns the lower bound of the trial count.  A statistical
+    producer may use a stricter local floor (for example, bounded folds), but
+    it can never submit a count below the append-only registry evidence.
+    This is research evidence only; it carries no shadow, paper or live
+    authorization.
+    """
+
+    experiment_id: str
+    hypothesis_id: str
+    research_campaign_id: str | None
+    trial_scope_id: str
+    registry_trial_count: int
+    effective_trial_count: int
+    schema_version: int = 1
+    research_only: bool = True
+    paper_capital_allowed: bool = False
+    live_allowed: bool = False
+    promotable: bool = False
+
+    def __post_init__(self) -> None:
+        experiment_id = str(self.experiment_id or "").strip()
+        hypothesis_id = str(self.hypothesis_id or "").strip().lower()
+        campaign_id = str(self.research_campaign_id or "").strip().lower() or None
+        trial_scope_id = str(self.trial_scope_id or "").strip().lower()
+        if not experiment_id or not hypothesis_id or not trial_scope_id:
+            raise ValueError("statistical validation artifact identifiers are required")
+        expected_scope = campaign_id or f"hypothesis_{hypothesis_id}"
+        if trial_scope_id != expected_scope:
+            raise ValueError("statistical validation artifact trial_scope_id must match its registry scope")
+        if any(not character.isalnum() and character not in "_.-" for character in trial_scope_id):
+            raise ValueError("statistical validation artifact trial_scope_id is invalid")
+        if isinstance(self.registry_trial_count, bool) or isinstance(self.effective_trial_count, bool):
+            raise ValueError("statistical validation artifact trial counts must be integers")
+        registry_trial_count = int(self.registry_trial_count)
+        effective_trial_count = int(self.effective_trial_count)
+        if registry_trial_count < 0 or effective_trial_count < 1:
+            raise ValueError("statistical validation artifact trial counts are invalid")
+        if effective_trial_count < registry_trial_count:
+            raise ValueError("effective trial count cannot understate append-only registry evidence")
+        if self.schema_version != 1:
+            raise ValueError("unsupported statistical validation artifact schema")
+        if not self.research_only or self.paper_capital_allowed or self.live_allowed or self.promotable:
+            raise ValueError("statistical validation artifact must remain research-only and non-promotional")
+        object.__setattr__(self, "experiment_id", experiment_id)
+        object.__setattr__(self, "hypothesis_id", hypothesis_id)
+        object.__setattr__(self, "research_campaign_id", campaign_id)
+        object.__setattr__(self, "trial_scope_id", trial_scope_id)
+        object.__setattr__(self, "registry_trial_count", registry_trial_count)
+        object.__setattr__(self, "effective_trial_count", effective_trial_count)
+
+    @property
+    def fingerprint(self) -> str:
+        payload = asdict(self)
+        return _fingerprint(payload)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {**asdict(self), "fingerprint": self.fingerprint}
+
+    @classmethod
+    def from_mapping(cls, payload: Mapping[str, Any]) -> "StatisticalValidationArtifact":
+        if not isinstance(payload, Mapping):
+            raise ValueError("statistical validation artifact must be a mapping")
+        raw = dict(payload)
+        supplied_fingerprint = str(raw.pop("fingerprint", "") or "").strip().lower()
+        artifact = cls(**raw)
+        if supplied_fingerprint != artifact.fingerprint:
+            raise ValueError("statistical validation artifact fingerprint mismatch")
+        return artifact
 
 
 class ExperimentRegistry:
@@ -494,6 +570,12 @@ class ExperimentRegistry:
                 raise ExperimentRegistryError(f"expected stage {expected}, received {stage}")
             if status == PASS_STATUS:
                 _validate_passed_stage_evidence(stage=stage, metrics=metrics, artifacts=artifacts)
+                if stage == "STRESS_MONTE_CARLO":
+                    self._validate_statistical_validation_artifact(
+                        connection,
+                        experiment_id=experiment_id,
+                        metrics=metrics,
+                    )
             if stage == STAGES[-1] and status == PASS_STATUS:
                 self._require_final_holdout_review(connection, experiment_id=experiment_id)
             transition_id = f"gate_{_fingerprint({'experiment_id': experiment_id, 'stage': stage, 'status': status, 'metrics': metrics or {}, 'reasons': list(reasons)})[:20]}"
@@ -562,11 +644,22 @@ class ExperimentRegistry:
                 return current
             if current.latest_stage is not None and STAGES.index(stage) <= STAGES.index(current.latest_stage):
                 continue
+            metrics = dict(getattr(gate, "metrics", {}) or {})
+            if stage == "STRESS_MONTE_CARLO" and status == PASS_STATUS:
+                assumed_trial_count = metrics.get("assumed_trial_count")
+                if isinstance(assumed_trial_count, bool) or not isinstance(assumed_trial_count, int):
+                    raise ExperimentRegistryError("STRESS_MONTE_CARLO assumed_trial_count must be an integer")
+                artifact = self.build_statistical_validation_artifact(
+                    experiment_id=current.experiment_id,
+                    effective_trial_count=assumed_trial_count,
+                )
+                metrics["trial_scope_id"] = artifact.trial_scope_id
+                metrics["statistical_validation_artifact"] = artifact.to_dict()
             current = self.record_gate_result(
                 experiment_id=state.experiment_id,
                 stage=stage,
                 status=status,
-                metrics=dict(getattr(gate, "metrics", {}) or {}),
+                metrics=metrics,
                 reasons=tuple(str(item) for item in (getattr(gate, "reasons", ()) or ())),
                 # Every passed material gate must carry the same immutable
                 # runner report.  This makes stage evidence independently
@@ -765,38 +858,142 @@ class ExperimentRegistry:
             character.isalnum() or character in "_.-" for character in normalized_campaign_id
         ):
             raise ExperimentRegistryError("research_campaign_id must contain only letters, digits, _, . or -")
-        scope_column = "experiment.research_campaign_id" if normalized_campaign_id is not None else "experiment.hypothesis_id"
-        scope_value = normalized_campaign_id if normalized_campaign_id is not None else normalized_hypothesis_id
         with self._connect() as connection:
             self._initialize(connection)
-            candidate_count = int(
-                connection.execute(
-                    f"""
-                    SELECT COUNT(*) FROM experiment_trials AS trial
-                    JOIN experiments AS experiment ON experiment.experiment_id = trial.experiment_id
-                    WHERE {scope_column} = ?
-                      AND trial.dimension IN ('candidate_configuration', 'regime_segmentation')
-                    """,
-                    (scope_value,),
-                ).fetchone()[0]
-            )
-            inherited_floor = self._campaign_predecessor_trial_floor(
+            return self._validation_trial_count_for_scope(
                 connection,
+                hypothesis_id=normalized_hypothesis_id,
                 research_campaign_id=normalized_campaign_id,
             )
-            if candidate_count:
-                return candidate_count + inherited_floor
-            fallback_count = int(
-                connection.execute(
-                    f"""
-                    SELECT COUNT(*) FROM experiment_trials AS trial
-                    JOIN experiments AS experiment ON experiment.experiment_id = trial.experiment_id
-                    WHERE {scope_column} = ?
-                    """,
-                    (scope_value,),
-                ).fetchone()[0]
+
+    def build_statistical_validation_artifact(
+        self,
+        *,
+        experiment_id: str,
+        effective_trial_count: int,
+    ) -> StatisticalValidationArtifact:
+        """Bind an external statistical report to the registry trial floor.
+
+        This method is side-effect free.  It may be called by a runner after it
+        has recorded a bounded trial plan, then supplied to the passed stress
+        gate as immutable, content-addressed evidence.
+        """
+
+        if isinstance(effective_trial_count, bool) or not isinstance(effective_trial_count, int):
+            raise ExperimentRegistryError("effective_trial_count must be an integer")
+        with self._connect() as connection:
+            self._initialize(connection)
+            row = connection.execute(
+                "SELECT hypothesis_id, research_campaign_id FROM experiments WHERE experiment_id = ?",
+                (experiment_id,),
+            ).fetchone()
+            if row is None:
+                raise ExperimentRegistryError(f"unknown experiment: {experiment_id}")
+            hypothesis_id = str(row[0] or "").strip().lower()
+            campaign_id = str(row[1] or "").strip().lower() or None
+            registry_trial_count = self._validation_trial_count_for_scope(
+                connection,
+                hypothesis_id=hypothesis_id,
+                research_campaign_id=campaign_id,
             )
+        try:
+            return StatisticalValidationArtifact(
+                experiment_id=experiment_id,
+                hypothesis_id=hypothesis_id,
+                research_campaign_id=campaign_id,
+                trial_scope_id=campaign_id or f"hypothesis_{hypothesis_id}",
+                registry_trial_count=registry_trial_count,
+                effective_trial_count=effective_trial_count,
+            )
+        except ValueError as exc:
+            raise ExperimentRegistryError(str(exc)) from exc
+
+    def _validation_trial_count_for_scope(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        hypothesis_id: str,
+        research_campaign_id: str | None,
+    ) -> int:
+        scope_column = "experiment.research_campaign_id" if research_campaign_id is not None else "experiment.hypothesis_id"
+        scope_value = research_campaign_id if research_campaign_id is not None else hypothesis_id
+        candidate_count = int(
+            connection.execute(
+                f"""
+                SELECT COUNT(*) FROM experiment_trials AS trial
+                JOIN experiments AS experiment ON experiment.experiment_id = trial.experiment_id
+                WHERE {scope_column} = ?
+                  AND trial.dimension IN ('candidate_configuration', 'regime_segmentation')
+                """,
+                (scope_value,),
+            ).fetchone()[0]
+        )
+        inherited_floor = self._campaign_predecessor_trial_floor(
+            connection,
+            research_campaign_id=research_campaign_id,
+        )
+        if candidate_count:
+            return candidate_count + inherited_floor
+        fallback_count = int(
+            connection.execute(
+                f"""
+                SELECT COUNT(*) FROM experiment_trials AS trial
+                JOIN experiments AS experiment ON experiment.experiment_id = trial.experiment_id
+                WHERE {scope_column} = ?
+                """,
+                (scope_value,),
+            ).fetchone()[0]
+        )
         return fallback_count + inherited_floor
+
+    def _validate_statistical_validation_artifact(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        experiment_id: str,
+        metrics: Mapping[str, Any] | None,
+    ) -> None:
+        if not isinstance(metrics, Mapping):
+            raise ExperimentRegistryError("STRESS_MONTE_CARLO PASSED requires metrics evidence")
+        try:
+            artifact = StatisticalValidationArtifact.from_mapping(metrics.get("statistical_validation_artifact"))
+        except (TypeError, ValueError) as exc:
+            raise ExperimentRegistryError(f"invalid statistical validation artifact: {exc}") from exc
+        if artifact.experiment_id != str(experiment_id):
+            raise ExperimentRegistryError("statistical validation artifact experiment_id mismatch")
+        assumed_trial_count = metrics.get("assumed_trial_count")
+        if isinstance(assumed_trial_count, bool) or not isinstance(assumed_trial_count, int):
+            raise ExperimentRegistryError("STRESS_MONTE_CARLO assumed_trial_count must be an integer")
+        if assumed_trial_count != artifact.effective_trial_count:
+            raise ExperimentRegistryError("assumed_trial_count must match statistical validation artifact")
+        if str(metrics.get("trial_scope_id") or "").strip().lower() != artifact.trial_scope_id:
+            raise ExperimentRegistryError("trial_scope_id must match statistical validation artifact")
+        row = connection.execute(
+            "SELECT hypothesis_id, research_campaign_id FROM experiments WHERE experiment_id = ?",
+            (experiment_id,),
+        ).fetchone()
+        if row is None:
+            raise ExperimentRegistryError(f"unknown experiment: {experiment_id}")
+        hypothesis_id = str(row[0] or "").strip().lower()
+        campaign_id = str(row[1] or "").strip().lower() or None
+        registry_trial_count = self._validation_trial_count_for_scope(
+            connection,
+            hypothesis_id=hypothesis_id,
+            research_campaign_id=campaign_id,
+        )
+        try:
+            expected = StatisticalValidationArtifact(
+                experiment_id=experiment_id,
+                hypothesis_id=hypothesis_id,
+                research_campaign_id=campaign_id,
+                trial_scope_id=campaign_id or f"hypothesis_{hypothesis_id}",
+                registry_trial_count=registry_trial_count,
+                effective_trial_count=artifact.effective_trial_count,
+            )
+        except ValueError as exc:
+            raise ExperimentRegistryError(str(exc)) from exc
+        if artifact.to_dict() != expected.to_dict():
+            raise ExperimentRegistryError("statistical validation artifact does not match append-only registry evidence")
 
     def has_final_holdout_review(self, experiment_id: str) -> bool:
         """Return whether immutable final-holdout evidence exists for one experiment."""

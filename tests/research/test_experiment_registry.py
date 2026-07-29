@@ -22,16 +22,31 @@ from autobot.v2.research.shadow_review_evidence import seal_shadow_review_eviden
 pytestmark = pytest.mark.unit
 
 
-def _passed_gate_evidence(stage: str) -> dict[str, object]:
+def _passed_gate_evidence(
+    stage: str,
+    *,
+    registry: ExperimentRegistry | None = None,
+    experiment_id: str | None = None,
+) -> dict[str, object]:
     metrics: dict[str, object] = {}
     if stage == "NET_SMOKE":
         metrics = {"adapter_decision": "KEEP_RESEARCH", "variant_count": 1}
     elif stage == "WALK_FORWARD":
         metrics = {"trade_count": 50, "net_pnl_eur": 1.0}
     elif stage == "STRESS_MONTE_CARLO":
+        if registry is None or experiment_id is None:
+            raise ValueError("stress gate evidence requires its experiment registry")
+        registry_trial_count = registry.validation_trial_count(hypothesis_id="funding_basis")
+        effective_trial_count = max(1, registry_trial_count)
+        artifact = registry.build_statistical_validation_artifact(
+            experiment_id=experiment_id,
+            effective_trial_count=effective_trial_count,
+        )
         metrics = {
             "trade_count": 50,
-            "assumed_trial_count": 1,
+            "assumed_trial_count": effective_trial_count,
+            "trial_scope_id": artifact.trial_scope_id,
+            "statistical_validation_artifact": artifact.to_dict(),
             "probabilistic_sharpe": {"acceptable": True},
             "deflated_sharpe": {"acceptable": True},
             "robustness": {"verdict": "observation_ready_not_promoted"},
@@ -259,6 +274,124 @@ def test_validation_trial_count_uses_explicit_campaign_without_mixing_legacy_row
     ) == 5
     with pytest.raises(ExperimentRegistryError, match="research_campaign_id"):
         registry.validation_trial_count(hypothesis_id="funding_basis", research_campaign_id="unsafe scope")
+
+
+def test_stress_gate_binds_its_trial_count_to_append_only_registry_evidence(tmp_path):
+    registry = ExperimentRegistry(tmp_path / "registry.sqlite3")
+    experiment = registry.register_experiment(_spec())
+    registry.record_trial_plan(
+        experiment_id=experiment.experiment_id,
+        variant_count=2,
+        symbols=("BTCZEUR", "ETHZEUR"),
+    )
+    assert registry.validation_trial_count(hypothesis_id="funding_basis") == 4
+
+    registry.record_gate_result(experiment_id=experiment.experiment_id, stage="DATA_CHECK", status="PASSED")
+    registry.record_gate_result(
+        experiment_id=experiment.experiment_id,
+        stage="NET_SMOKE",
+        status="PASSED",
+        **_passed_gate_evidence("NET_SMOKE"),
+    )
+    registry.record_gate_result(
+        experiment_id=experiment.experiment_id,
+        stage="WALK_FORWARD",
+        status="PASSED",
+        **_passed_gate_evidence("WALK_FORWARD"),
+    )
+
+    with pytest.raises(ExperimentRegistryError, match="cannot understate append-only registry evidence"):
+        registry.build_statistical_validation_artifact(
+            experiment_id=experiment.experiment_id,
+            effective_trial_count=1,
+        )
+
+    evidence = _passed_gate_evidence(
+        "STRESS_MONTE_CARLO",
+        registry=registry,
+        experiment_id=experiment.experiment_id,
+    )
+    tampered_metrics = dict(evidence["metrics"])
+    tampered_metrics["assumed_trial_count"] = 1
+    with pytest.raises(ExperimentRegistryError, match="assumed_trial_count must match"):
+        registry.record_gate_result(
+            experiment_id=experiment.experiment_id,
+            stage="STRESS_MONTE_CARLO",
+            status="PASSED",
+            metrics=tampered_metrics,
+            artifacts=evidence["artifacts"],
+        )
+
+    state = registry.record_gate_result(
+        experiment_id=experiment.experiment_id,
+        stage="STRESS_MONTE_CARLO",
+        status="PASSED",
+        **evidence,
+    )
+    assert state.latest_stage == "STRESS_MONTE_CARLO"
+    transition = registry.export_manifest(experiment.experiment_id)["transitions"][-1]
+    artifact = transition["metrics"]["statistical_validation_artifact"]
+    assert artifact["registry_trial_count"] == 4
+    assert artifact["effective_trial_count"] == 4
+    assert artifact["paper_capital_allowed"] is False
+    assert artifact["live_allowed"] is False
+
+
+def test_runner_attaches_registry_bound_statistical_artifact_before_stress_transition(tmp_path):
+    registry = ExperimentRegistry(tmp_path / "registry.sqlite3")
+    report_path = tmp_path / "runner.json"
+    report_path.write_text("{}", encoding="utf-8")
+    report = SimpleNamespace(
+        run_id="pytest_registry_bound_statistics",
+        json_report_path=str(report_path),
+        markdown_report_path=None,
+        gates=(
+            SimpleNamespace(gate="DATA_CHECK", status="PASSED", passed=True, metrics={}, reasons=()),
+            SimpleNamespace(
+                gate="NET_SMOKE",
+                status="PASSED",
+                passed=True,
+                metrics={"adapter_decision": "KEEP_RESEARCH", "variant_count": 2},
+                reasons=(),
+            ),
+            SimpleNamespace(
+                gate="WALK_FORWARD",
+                status="PASSED",
+                passed=True,
+                metrics={"trade_count": 50, "net_pnl_eur": 1.0},
+                reasons=(),
+            ),
+            SimpleNamespace(
+                gate="STRESS_MONTE_CARLO",
+                status="PASSED",
+                passed=True,
+                metrics={
+                    "trade_count": 50,
+                    "assumed_trial_count": 2,
+                    "trial_scope_id": "untrusted_caller_value",
+                    "probabilistic_sharpe": {"acceptable": True},
+                    "deflated_sharpe": {"acceptable": True},
+                    "robustness": {"verdict": "observation_ready_not_promoted"},
+                    "statistical_gate_decision": "SHADOW_REVIEW_ELIGIBLE",
+                },
+                reasons=(),
+            ),
+        ),
+    )
+
+    state = registry.record_runner_evidence(
+        spec=_spec(),
+        report=report,
+        variant_count=2,
+        symbols=("BTCZEUR",),
+    )
+
+    assert state.latest_stage == "STRESS_MONTE_CARLO"
+    transition = registry.export_manifest(state.experiment_id)["transitions"][-1]
+    metrics = transition["metrics"]
+    assert metrics["trial_scope_id"] == "hypothesis_funding_basis"
+    assert metrics["statistical_validation_artifact"]["registry_trial_count"] == 2
+    assert metrics["statistical_validation_artifact"]["effective_trial_count"] == 2
 
 
 def test_campaign_schema_migrates_an_existing_append_only_registry_without_rewriting_rows(tmp_path):
@@ -528,7 +661,7 @@ def test_final_shadow_review_closes_the_material_experiment(tmp_path):
             experiment_id=experiment.experiment_id,
             stage=stage,
             status="PASSED",
-            **_passed_gate_evidence(stage),
+            **_passed_gate_evidence(stage, registry=registry, experiment_id=experiment.experiment_id),
         )
 
     with pytest.raises(ExperimentRegistryError, match="immutable final holdout review"):
