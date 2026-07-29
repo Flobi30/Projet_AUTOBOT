@@ -46,6 +46,9 @@ from .portfolio_construction import (
 from .portfolio_sizing import derive_research_sizing_decision
 
 
+_PIPELINE_ENTRY_ORDER_TYPE = "market"
+
+
 @dataclass(frozen=True)
 class ContractShadowPipelineReview:
     """Auditable result of one contract-driven, non-executable shadow path."""
@@ -91,6 +94,25 @@ def evaluate_alpha_signal_in_shadow(
     reason = _artifact_matches_signal(strategy_artifact, signal)
     if reason is not None:
         return ContractShadowPipelineReview("CONTRACT_REJECTED", reason, signal, risk_decision=risk_decision)
+    expected_simulation_cost = scenario_cost_config(base_cost_config, simulator.config.scenario)
+    if cost_model_fingerprint(simulator.cost_config.to_dict()) != cost_model_fingerprint(expected_simulation_cost.to_dict()):
+        return ContractShadowPipelineReview(
+            "CONTRACT_REJECTED",
+            "simulation_cost_model_fingerprint_mismatch",
+            signal,
+            risk_decision=risk_decision,
+        )
+    # This v1 research hand-off has no limit-price contract. It therefore
+    # constructs an explicit market intent below. Validating a maker/limit
+    # profile while simulating that implicit market order would make the
+    # pessimistic edge test economically inconsistent, so reject it early.
+    if expected_simulation_cost.default_entry_order_type != _PIPELINE_ENTRY_ORDER_TYPE:
+        return ContractShadowPipelineReview(
+            "CONTRACT_REJECTED",
+            "simulation_entry_order_type_cost_model_mismatch",
+            signal,
+            risk_decision=risk_decision,
+        )
     scenario_review = review_net_edge_scenarios(
         signal,
         base_cost_config=base_cost_config,
@@ -100,15 +122,6 @@ def evaluate_alpha_signal_in_shadow(
         return ContractShadowPipelineReview(
             "SCENARIO_BLOCKED",
             scenario_review.reason,
-            signal,
-            scenario_review=scenario_review,
-            risk_decision=risk_decision,
-        )
-    expected_simulation_cost = scenario_cost_config(base_cost_config, simulator.config.scenario)
-    if cost_model_fingerprint(simulator.cost_config.to_dict()) != cost_model_fingerprint(expected_simulation_cost.to_dict()):
-        return ContractShadowPipelineReview(
-            "CONTRACT_REJECTED",
-            "simulation_cost_model_fingerprint_mismatch",
             signal,
             scenario_review=scenario_review,
             risk_decision=risk_decision,
@@ -238,6 +251,7 @@ def evaluate_alpha_signal_in_shadow(
         metadata={
             "source": "contract_shadow_pipeline/v1",
             "signal_id": signal.signal_id,
+            "order_type": _PIPELINE_ENTRY_ORDER_TYPE,
             "target_weight": target_result.target.target_weights[symbol],
             "capacity_status": capacity_review.status,
             "sizing_decision_fingerprint": contract_fingerprint(sizing_decision),

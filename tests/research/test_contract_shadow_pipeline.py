@@ -438,6 +438,37 @@ def test_contract_shadow_pipeline_rejects_simulator_with_costs_not_derived_from_
     assert review.reason == "simulation_cost_model_fingerprint_mismatch"
 
 
+def test_contract_shadow_pipeline_rejects_maker_cost_profile_for_implicit_market_intent():
+    signal = _signal(expected_edge_bps=100.0)
+    maker_assumed_costs = replace(
+        _base_cost_config(),
+        default_entry_order_type="limit",
+        default_exit_order_type="limit",
+    )
+    maker_assumed_simulator = ResearchExecutionSimulator(
+        cost_config=maker_assumed_costs,
+        market_rules=_market_rules(),
+    )
+
+    review = evaluate_alpha_signal_in_shadow(
+        signal,
+        decision_id="decision-contract-shadow",
+        strategy_artifact=_artifact(),
+        capital_eur=1_000.0,
+        capacity_observations={},
+        max_liquidity_participation=0.05,
+        base_cost_config=maker_assumed_costs,
+        simulator=maker_assumed_simulator,
+        snapshots=(),
+        risk_evidence=None,
+    )
+
+    assert review.status == "CONTRACT_REJECTED"
+    assert review.reason == "simulation_entry_order_type_cost_model_mismatch"
+    assert review.order_intent is None
+    assert review.outcome is None
+
+
 def test_contract_shadow_pipeline_allows_an_exact_pessimistic_cost_derivation():
     signal = _signal(expected_edge_bps=100.0)
     artifact = _artifact()
@@ -466,6 +497,7 @@ def test_contract_shadow_pipeline_allows_an_exact_pessimistic_cost_derivation():
     assert review.order_intent.metadata["simulation_cost_model_fingerprint"] == cost_model_fingerprint(
         simulator.cost_config.to_dict()
     )
+    assert review.order_intent.metadata["order_type"] == "market"
 
 
 def test_contract_shadow_pipeline_records_opt_in_microstructure_cost_evidence():
