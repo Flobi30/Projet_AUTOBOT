@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -13,6 +14,16 @@ def test_runtime_image_includes_versioned_layer_coverage_for_readiness_dossier()
 
     assert "COPY docs/architecture/ /app/docs/architecture/" in dockerfile
     assert Path("docs/architecture/layer_coverage.json").is_file()
+
+
+def test_layer_coverage_records_the_code_level_deployment_lock_without_claiming_runtime_completion():
+    coverage = json.loads(Path("docs/architecture/layer_coverage.json").read_text(encoding="utf-8"))
+    layer_24 = next(layer for layer in coverage["layers"] if layer["id"] == 24)
+
+    assert layer_24["status"] == "PARTIAL"
+    assert "tests/test_deployment_runtime_evidence.py" in layer_24["test"]
+    assert "code-level programme execution lock" in layer_24["evidence"]
+    assert "autobot_block_6_program_lock_deployment_evidence_20260729.md" in layer_24["evidence"]
 
 
 def test_archived_paper_operations_guide_contains_no_activation_or_credential_procedure():
