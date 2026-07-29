@@ -181,6 +181,19 @@ def test_oms_ledger_handles_partial_fill_duplicate_and_restart_reconstruction(tm
     assert restarted.reconcile(observed_positions={"BTCEUR": 2.0}, observed_open_orders=()).status == "RECONCILED"
 
 
+def test_oms_ledger_rejects_reused_client_order_id_with_different_intent_evidence(tmp_path):
+    ledger = ShadowOMSLedger(tmp_path / "oms.sqlite3")
+    intent = _intent(notional=100.0)
+    altered = replace(intent, target_notional=125.0)
+
+    assert ledger.register_intent(intent) is True
+    assert ledger.register_intent(intent) is False
+    with pytest.raises(OMSLedgerError, match="different immutable intent"):
+        ledger.register_intent(altered)
+    with pytest.raises(OMSLedgerError, match="registered immutable intent"):
+        ledger.record_risk_decision(altered, _risk_decision(altered))
+
+
 def test_oms_ledger_blocks_invalid_lifecycle_and_reconciliation_mismatch(tmp_path):
     ledger = ShadowOMSLedger(tmp_path / "oms.sqlite3")
     intent = _intent()

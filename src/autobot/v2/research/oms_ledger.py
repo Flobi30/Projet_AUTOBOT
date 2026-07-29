@@ -196,12 +196,21 @@ class ShadowOMSLedger:
     def register_intent(self, intent: OrderIntent) -> bool:
         if intent.execution_mode != "shadow":
             raise OMSLedgerError("OMS ledger accepts shadow intents only")
+        serialized_intent = _json(contract_to_dict(intent))
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as connection:
             self._initialize(connection)
+            existing = connection.execute(
+                "SELECT intent_json FROM oms_intents WHERE client_order_id = ?",
+                (intent.client_order_id,),
+            ).fetchone()
+            if existing:
+                if str(existing[0]) == serialized_intent:
+                    return False
+                raise OMSLedgerError("client_order_id is already bound to a different immutable intent")
             cursor = connection.execute(
                 """
-                INSERT OR IGNORE INTO oms_intents
+                INSERT INTO oms_intents
                     (client_order_id, decision_id, strategy_id, intent_json, created_at,
                      paper_capital_allowed, live_allowed)
                 VALUES (?, ?, ?, ?, ?, 0, 0)
@@ -210,7 +219,7 @@ class ShadowOMSLedger:
                     intent.client_order_id,
                     intent.decision_id,
                     intent.strategy_id,
-                    _json(contract_to_dict(intent)),
+                    serialized_intent,
                     intent.created_at.isoformat(),
                 ),
             )
@@ -243,8 +252,8 @@ class ShadowOMSLedger:
         with self._connect() as connection:
             self._initialize(connection)
             stored_intent = self._load_intent(connection, intent.client_order_id)
-            if str(stored_intent["decision_id"]) != intent.decision_id:
-                raise OMSLedgerError("risk decision intent does not match registered intent")
+            if _json(stored_intent) != _json(contract_to_dict(intent)):
+                raise OMSLedgerError("risk decision intent does not match registered immutable intent")
             existing = connection.execute(
                 "SELECT risk_decision_id FROM oms_risk_decisions WHERE client_order_id = ?",
                 (intent.client_order_id,),
