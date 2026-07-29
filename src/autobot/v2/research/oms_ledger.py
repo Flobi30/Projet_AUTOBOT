@@ -291,10 +291,22 @@ class ShadowOMSLedger:
         _validate_costs(costs)
         if not math.isclose(float(costs["fee_eur"]), float(fill.fees), rel_tol=0.0, abs_tol=1e-9):
             raise OMSLedgerError("fill fee evidence does not match FillEvent fee")
+        serialized_fill = _json(contract_to_dict(fill))
+        serialized_costs = _json(dict(costs))
         with self._connect() as connection:
             self._initialize(connection)
-            duplicate = connection.execute("SELECT 1 FROM oms_fill_events WHERE fill_id = ?", (fill.fill_id,)).fetchone()
-            if duplicate:
+            existing = connection.execute(
+                "SELECT fill_json, costs_json FROM oms_fill_events WHERE fill_id = ?",
+                (fill.fill_id,),
+            ).fetchone()
+            if existing is not None:
+                self._require_identical_fill_retry(
+                    fill_id=fill.fill_id,
+                    stored_fill_json=str(existing[0]),
+                    stored_costs_json=str(existing[1]),
+                    fill_json=serialized_fill,
+                    costs_json=serialized_costs,
+                )
                 return False
             intent = self._load_intent(connection, fill.client_order_id)
             risk_decision_id, approved_notional_cap = self._approved_risk_decision(
@@ -329,14 +341,35 @@ class ShadowOMSLedger:
             if reduced_notional_cap is not None and prospective_notional > reduced_notional_cap + 1e-9:
                 raise OMSLedgerError("fill exceeds approved risk notional cap")
             fill_id = str(fill.fill_id)
-            connection.execute(
-                """
-                INSERT OR IGNORE INTO oms_fill_events
-                    (fill_id, client_order_id, fill_json, costs_json, occurred_at)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (fill_id, fill.client_order_id, _json(contract_to_dict(fill)), _json(dict(costs)), fill.occurred_at.isoformat()),
-            )
+            try:
+                cursor = connection.execute(
+                    """
+                    INSERT INTO oms_fill_events
+                        (fill_id, client_order_id, fill_json, costs_json, occurred_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (fill_id, fill.client_order_id, serialized_fill, serialized_costs, fill.occurred_at.isoformat()),
+                )
+            except sqlite3.IntegrityError as exc:
+                # A concurrent writer can win after the initial lookup.  Read
+                # its immutable payload before deciding whether this is a safe
+                # retry or a conflicting reuse of a fill identifier.
+                existing = connection.execute(
+                    "SELECT fill_json, costs_json FROM oms_fill_events WHERE fill_id = ?",
+                    (fill_id,),
+                ).fetchone()
+                if existing is None:
+                    raise OMSLedgerError("fill insert failed without a recoverable idempotency record") from exc
+                self._require_identical_fill_retry(
+                    fill_id=fill_id,
+                    stored_fill_json=str(existing[0]),
+                    stored_costs_json=str(existing[1]),
+                    fill_json=serialized_fill,
+                    costs_json=serialized_costs,
+                )
+                return False
+            if cursor.rowcount != 1:
+                raise OMSLedgerError("fill insert did not persist immutable ledger evidence")
             total_notional = self._filled_notional(connection, fill.client_order_id)
             terminal_notional = reduced_notional_cap if reduced_notional_cap is not None else requested_notional
             next_state = "FILLED" if total_notional + 1e-9 >= terminal_notional else "PARTIALLY_FILLED"
@@ -669,6 +702,20 @@ class ShadowOMSLedger:
             "SELECT fill_json FROM oms_fill_events WHERE client_order_id = ?", (client_order_id,)
         ).fetchall()
         return sum(float(json.loads(str(row[0]))["quantity"]) * float(json.loads(str(row[0]))["average_price"]) for row in rows)
+
+    @staticmethod
+    def _require_identical_fill_retry(
+        *,
+        fill_id: str,
+        stored_fill_json: str,
+        stored_costs_json: str,
+        fill_json: str,
+        costs_json: str,
+    ) -> None:
+        """Accept only an exact immutable retry for an existing ``fill_id``."""
+
+        if stored_fill_json != fill_json or stored_costs_json != costs_json:
+            raise OMSLedgerError("fill_id is already bound to different immutable fill evidence")
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path, timeout=30.0)

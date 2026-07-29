@@ -188,6 +188,37 @@ def test_oms_ledger_handles_partial_fill_duplicate_and_restart_reconstruction(tm
     assert restarted.reconcile(observed_positions={"BTCEUR": 2.0}, observed_open_orders=()).status == "RECONCILED"
 
 
+def test_oms_ledger_rejects_conflicting_fill_id_without_mutating_ledger_or_position(tmp_path):
+    path = tmp_path / "oms.sqlite3"
+    ledger = ShadowOMSLedger(path)
+    intent = _intent()
+    assert ledger.register_intent(intent)
+    _acknowledge(ledger, intent)
+    recorded = FillEvent(intent.client_order_id, "fill-conflict", intent.created_at + timedelta(seconds=3), 1.0, 100.0, 0.16)
+    assert ledger.record_fill(recorded, costs=_costs())
+
+    with sqlite3.connect(path) as connection:
+        before_fills = connection.execute("SELECT COUNT(*) FROM oms_fill_events").fetchone()[0]
+        before_events = connection.execute("SELECT COUNT(*) FROM oms_order_events").fetchone()[0]
+
+    conflicting = replace(recorded, quantity=0.5, average_price=101.0)
+    with pytest.raises(OMSLedgerError, match="fill_id is already bound"):
+        ledger.record_fill(conflicting, costs=_costs())
+    with pytest.raises(OMSLedgerError, match="fill_id is already bound"):
+        ShadowOMSLedger(path).record_fill(
+            replace(recorded, fees=0.18),
+            costs={**_costs(), "fee_eur": 0.18},
+        )
+
+    with sqlite3.connect(path) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM oms_fill_events").fetchone()[0] == before_fills
+        assert connection.execute("SELECT COUNT(*) FROM oms_order_events").fetchone()[0] == before_events
+    positions = ShadowOMSLedger(path).reconstruct_positions()
+    assert len(positions) == 1
+    assert positions[0].quantity == pytest.approx(1.0)
+    assert positions[0].average_entry_price == pytest.approx(100.26)
+
+
 def test_oms_ledger_caps_shadow_fills_at_approved_risk_reduction(tmp_path):
     path = tmp_path / "oms.sqlite3"
     ledger = ShadowOMSLedger(path)
