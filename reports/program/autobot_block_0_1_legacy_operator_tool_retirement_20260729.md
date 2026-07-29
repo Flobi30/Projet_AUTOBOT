@@ -2,11 +2,13 @@
 
 ## Finding
 
-Three historical operator tools still documented or automated flows outside
+Four historical operator tools still documented or automated flows outside
 the research/shadow programme: a preflight script that displayed key material
 and constructed archived Grid components, a paper operations guide that
 recommended paper activation, and a VPS setup script that requested private
-credentials and wrote an environment file in clear text.
+credentials and wrote an environment file in clear text. A standalone
+historical paper-trading patch also duplicated a database-writing simulator
+outside the governed source tree.
 
 ## Change
 
@@ -19,7 +21,8 @@ The retained `paper_ops.py` name now exposes only read-only log summarization
 and a preflight-only attestation artifact. Its former validation command
 refuses the retired activation workflow before reading the supplied environment
 file; launch and feature-flag guidance no longer exist. Historical content
-remains recoverable through Git history.
+remains recoverable through Git history. The standalone duplicate is retained
+as a `retired_from_execution` stub only.
 
 ## Safety Result
 

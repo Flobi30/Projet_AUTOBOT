@@ -12,24 +12,26 @@ import pytest
 pytestmark = pytest.mark.unit
 
 
-def test_retired_preflight_exits_before_runtime_or_secret_handling():
+def test_retired_python_entrypoints_exit_before_runtime_or_secret_handling():
     root = Path(__file__).resolve().parents[1]
 
-    result = subprocess.run(
-        [sys.executable, "test_preflight.py"],
-        cwd=root,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert result.returncode == 2
-    assert "retired_from_execution" in result.stdout
+    for relative_path in ("test_preflight.py", "paper_trading_fix.py"):
+        result = subprocess.run(
+            [sys.executable, relative_path],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode == 2
+        assert "retired_from_execution" in result.stdout
 
 
 def test_retired_operator_sources_contain_no_activation_or_credential_guidance():
     root = Path(__file__).resolve().parents[1]
     paths = (
         root / "test_preflight.py",
+        root / "paper_trading_fix.py",
         root / "setup-vps.sh",
     )
 
