@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 import autobot.v2.instance as legacy_instance
 import autobot.v2.orchestrator as legacy_orchestrator
+import autobot.v2.tests.test_kraken_api as legacy_kraken_api
 from autobot.v2.legacy_runtime import LegacySynchronousRuntimeRetired
 
 
@@ -59,3 +61,24 @@ def test_legacy_trading_instance_fails_before_persistence_or_executor_use(monkey
         )
 
     assert calls == []
+
+
+def test_legacy_private_kraken_test_harness_fails_before_credential_or_client_use():
+    with pytest.raises(LegacySynchronousRuntimeRetired, match="retired_from_execution"):
+        legacy_kraken_api.KrakenAPITester(
+            api_key="must-not-be-used",
+            api_secret="must-not-be-used",
+        )
+
+    with pytest.raises(LegacySynchronousRuntimeRetired, match="retired_from_execution"):
+        legacy_kraken_api.main()
+
+
+def test_legacy_private_kraken_shell_wrapper_cannot_request_or_forward_credentials():
+    root = Path(__file__).resolve().parents[1]
+    script = (root / "src/autobot/v2/tests/test-kraken.sh").read_text(encoding="utf-8")
+
+    assert "retired_from_execution" in script
+    assert "KRAKEN_API_KEY" not in script
+    assert "KRAKEN_API_SECRET" not in script
+    assert "test_kraken_api.py" not in script
