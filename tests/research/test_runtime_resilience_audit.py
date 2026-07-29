@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+from contextlib import closing, contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import sqlite3
@@ -9,6 +10,7 @@ import pytest
 
 from autobot.v2.research.runtime_resilience_audit import (
     RuntimeResilienceAuditError,
+    _temporary_sqlite_audit_snapshot,
     audit_runtime_resilience,
 )
 
@@ -50,6 +52,73 @@ def test_runtime_resilience_audit_reports_healthy_only_with_explicit_websocket_p
     assert report.paper_capital_allowed is False
     assert report.live_allowed is False
     assert state_db.read_bytes() == before
+
+
+def test_runtime_resilience_audit_uses_and_cleans_an_ephemeral_sqlite_snapshot(tmp_path):
+    state_db = _state_db(tmp_path / "state.sqlite3", "2026-07-16T12:00:00+00:00")
+    before = state_db.read_bytes()
+
+    with _temporary_sqlite_audit_snapshot(state_db) as snapshot:
+        snapshot_parent = snapshot.parent
+        assert snapshot.is_file()
+        with closing(sqlite3.connect(snapshot)) as connection:
+            assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+            assert connection.execute("SELECT observed_at FROM market_price_samples").fetchone()[0] == "2026-07-16T12:00:00+00:00"
+
+    assert not snapshot_parent.exists()
+    assert state_db.read_bytes() == before
+
+
+def test_runtime_resilience_audit_reads_its_snapshot_not_the_runtime_database(tmp_path, monkeypatch):
+    now = datetime(2026, 7, 16, 12, tzinfo=timezone.utc)
+    state_db = _state_db(tmp_path / "state.sqlite3", now.isoformat())
+    snapshot = _state_db(tmp_path / "snapshot.sqlite3", (now - timedelta(minutes=20)).isoformat())
+
+    @contextmanager
+    def _fixed_snapshot(_source: Path):
+        yield snapshot
+
+    monkeypatch.setattr(
+        "autobot.v2.research.runtime_resilience_audit._temporary_sqlite_audit_snapshot",
+        _fixed_snapshot,
+    )
+    report = audit_runtime_resilience(
+        state_db,
+        max_data_age_seconds=60,
+        min_free_disk_bytes=0,
+        websocket_status="connected",
+        websocket_observed_at=now,
+        evaluated_at=now,
+    )
+
+    assert report.incident_types == ("DATA_STALE",)
+    assert "market_data_stale" in report.reasons
+
+
+def test_runtime_resilience_audit_fails_closed_when_snapshot_is_temporarily_locked(tmp_path, monkeypatch):
+    now = datetime(2026, 7, 16, 12, tzinfo=timezone.utc)
+    state_db = _state_db(tmp_path / "state.sqlite3", now.isoformat())
+
+    @contextmanager
+    def _locked_snapshot(_source: Path):
+        raise sqlite3.OperationalError("database is locked")
+        yield tmp_path / "unreachable.sqlite3"
+
+    monkeypatch.setattr(
+        "autobot.v2.research.runtime_resilience_audit._temporary_sqlite_audit_snapshot",
+        _locked_snapshot,
+    )
+    report = audit_runtime_resilience(
+        state_db,
+        min_free_disk_bytes=0,
+        websocket_status="connected",
+        websocket_observed_at=now,
+        evaluated_at=now,
+    )
+
+    assert "SQLITE_LOCKED" in report.incident_types
+    assert "sqlite_locked:OperationalError" in report.reasons
+    assert report.fail_closed.action != "NORMAL"
 
 
 def test_runtime_resilience_audit_fails_closed_for_stale_data_disk_and_websocket(tmp_path):

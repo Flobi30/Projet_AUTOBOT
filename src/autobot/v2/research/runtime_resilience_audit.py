@@ -7,12 +7,13 @@ fail-closed incidents for the independent risk boundary to consume later.
 
 from __future__ import annotations
 
-from contextlib import closing
+from contextlib import closing, contextmanager
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 import shutil
 import sqlite3
+from tempfile import TemporaryDirectory
 from typing import Literal
 
 from autobot.v2.research.resilience_readiness import (
@@ -108,13 +109,18 @@ def audit_runtime_resilience(
         reasons.append("state_db_missing")
     else:
         try:
-            with closing(sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True)) as connection:
-                connection.execute("PRAGMA query_only = ON")
-                integrity = str(connection.execute("PRAGMA integrity_check").fetchone()[0])
-                if integrity.lower() != "ok":
-                    incidents.append("SQLITE_CORRUPT")
-                    reasons.append(f"sqlite_integrity:{integrity}")
-                latest_observed_at = _latest_market_observed_at(connection)
+            # Integrity checks can be expensive on a busy runtime database.
+            # Capture a read-only SQLite backup first, then inspect that stable
+            # snapshot so this audit does not hold a read transaction on the
+            # live persistence path longer than the backup operation itself.
+            with _temporary_sqlite_audit_snapshot(path) as snapshot_path:
+                with closing(sqlite3.connect(f"{snapshot_path.as_uri()}?mode=ro", uri=True)) as connection:
+                    connection.execute("PRAGMA query_only = ON")
+                    integrity = str(connection.execute("PRAGMA integrity_check").fetchone()[0])
+                    if integrity.lower() != "ok":
+                        incidents.append("SQLITE_CORRUPT")
+                        reasons.append(f"sqlite_integrity:{integrity}")
+                    latest_observed_at = _latest_market_observed_at(connection)
         except sqlite3.OperationalError as exc:
             _record_sqlite_operational_failure(incidents, reasons, exc)
         except sqlite3.DatabaseError as exc:
@@ -182,6 +188,30 @@ def audit_runtime_resilience(
         fail_closed=summary,
         reasons=tuple(reasons),
     )
+
+
+@contextmanager
+def _temporary_sqlite_audit_snapshot(source_path: Path):
+    """Yield an ephemeral, read-only-consistent SQLite audit snapshot.
+
+    The source is opened read-only and the SQLite Backup API materializes the
+    snapshot in a disposable directory.  The caller must inspect only the
+    yielded copy; the temporary directory removes the copy even when the audit
+    fails.  No runtime table, journal or configuration is changed.
+    """
+
+    with TemporaryDirectory(prefix="autobot-runtime-resilience-audit-") as temporary_directory:
+        snapshot_path = Path(temporary_directory) / "state_audit.sqlite3"
+        source_uri = f"{source_path.as_uri()}?mode=ro"
+        with (
+            closing(sqlite3.connect(source_uri, uri=True)) as source_connection,
+            closing(sqlite3.connect(snapshot_path)) as destination_connection,
+        ):
+            source_connection.execute("PRAGMA query_only = ON")
+            source_connection.execute("PRAGMA busy_timeout = 5000")
+            source_connection.backup(destination_connection)
+            destination_connection.commit()
+        yield snapshot_path
 
 
 def _latest_market_observed_at(connection: sqlite3.Connection) -> str | None:
