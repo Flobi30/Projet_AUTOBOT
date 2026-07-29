@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import sqlite3
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -111,6 +112,51 @@ def test_sqlite_memory_is_append_only_idempotent_and_keeps_latest_record(tmp_pat
     assert exported["source_event_count"] == 2
     assert exported["paper_capital_allowed"] is False
     assert len(exported["records"]) == 1
+
+
+def test_sqlite_memory_retries_a_temporary_lock_and_confirms_an_uncertain_append(tmp_path, monkeypatch):
+    delays: list[float] = []
+    store = ResearchMemoryStore(
+        tmp_path / "memory.sqlite3",
+        sqlite_timeout_seconds=0.01,
+        write_retries=1,
+        retry_base_delay_seconds=0.001,
+        sleeper=delays.append,
+    )
+    attempts = 0
+
+    def busy_then_existing(*, run_id, serialized, content_hash):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise sqlite3.OperationalError("database is locked")
+        # A commit acknowledgement may be lost even though the idempotency key
+        # is already durable. The retry must report the append as accepted.
+        return False
+
+    monkeypatch.setattr(store, "_append_once", busy_then_existing)
+
+    assert store.append(_record("retry-ack").to_dict()) is True
+    assert attempts == 2
+    assert delays == [0.001]
+
+
+def test_sqlite_memory_surfaces_a_persistent_lock_without_claiming_an_append(tmp_path, monkeypatch):
+    store = ResearchMemoryStore(
+        tmp_path / "memory.sqlite3",
+        sqlite_timeout_seconds=0.01,
+        write_retries=1,
+        retry_base_delay_seconds=0.0,
+        sleeper=lambda _: None,
+    )
+
+    def always_busy(*, run_id, serialized, content_hash):
+        raise sqlite3.OperationalError("database is busy")
+
+    monkeypatch.setattr(store, "_append_once", always_busy)
+
+    with pytest.raises(sqlite3.OperationalError, match="busy"):
+        store.append(_record("retry-failure").to_dict())
 
 
 def test_default_sqlite_memory_imports_versioned_seed_once(tmp_path, monkeypatch):

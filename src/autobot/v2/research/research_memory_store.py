@@ -5,16 +5,37 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from hashlib import sha256
 import json
+import logging
 from pathlib import Path
 import sqlite3
-from typing import Any, Iterable, Mapping
+from time import sleep
+from typing import Any, Callable, Iterable, Mapping, TypeVar
+
+
+logger = logging.getLogger(__name__)
+_T = TypeVar("_T")
 
 
 class ResearchMemoryStore:
     """SQLite-backed append-only research memory with idempotent writes."""
 
-    def __init__(self, path: str | Path) -> None:
+    def __init__(
+        self,
+        path: str | Path,
+        *,
+        sqlite_timeout_seconds: float = 30.0,
+        write_retries: int = 3,
+        retry_base_delay_seconds: float = 0.05,
+        sleeper: Callable[[float], None] = sleep,
+    ) -> None:
         self.path = Path(path)
+        if sqlite_timeout_seconds <= 0.0 or write_retries < 0 or retry_base_delay_seconds < 0.0:
+            raise ValueError("invalid research-memory SQLite retry configuration")
+        self._sqlite_timeout_seconds = float(sqlite_timeout_seconds)
+        self._busy_timeout_ms = max(1, int(self._sqlite_timeout_seconds * 1000))
+        self._write_retries = int(write_retries)
+        self._retry_base_delay_seconds = float(retry_base_delay_seconds)
+        self._sleeper = sleeper
 
     def append(self, record: Mapping[str, Any]) -> bool:
         payload = dict(record)
@@ -25,17 +46,26 @@ class ResearchMemoryStore:
         serialized = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
         content_hash = sha256(serialized.encode("utf-8")).hexdigest()
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self._connect() as connection:
-            self._initialize(connection)
-            cursor = connection.execute(
-                """
-                INSERT OR IGNORE INTO research_memory_events
-                    (run_id, recorded_at, record_json, content_hash)
-                VALUES (?, ?, ?, ?)
-                """,
-                (run_id, datetime.now(timezone.utc).isoformat(), serialized, content_hash),
-            )
-            return cursor.rowcount == 1
+        for attempt in range(self._write_retries + 1):
+            try:
+                inserted = self._append_once(run_id=run_id, serialized=serialized, content_hash=content_hash)
+                # A busy commit has uncertain acknowledgement semantics. If a
+                # retry observes the idempotency key, the desired append is
+                # durable and should still be reported as successful.
+                return inserted or attempt > 0
+            except sqlite3.OperationalError as exc:
+                if not _is_transient_lock(exc) or attempt >= self._write_retries:
+                    raise
+                delay = self._retry_base_delay_seconds * (2 ** attempt)
+                logger.warning(
+                    "Research-memory SQLite busy during append; retry %s/%s in %.3fs",
+                    attempt + 1,
+                    self._write_retries,
+                    delay,
+                )
+                self._sleeper(delay)
+
+        raise AssertionError("unreachable research-memory SQLite retry state")
 
     def append_many(self, records: Iterable[Mapping[str, Any]]) -> int:
         return sum(1 for record in records if self.append(record))
@@ -91,9 +121,30 @@ class ResearchMemoryStore:
         return target
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path, timeout=30.0)
-        connection.execute("PRAGMA busy_timeout = 30000")
+        connection = sqlite3.connect(self.path, timeout=self._sqlite_timeout_seconds)
+        connection.execute("PRAGMA journal_mode = WAL")
+        connection.execute(f"PRAGMA busy_timeout = {self._busy_timeout_ms}")
         return connection
+
+    def _append_once(self, *, run_id: str, serialized: str, content_hash: str) -> bool:
+        connection = self._connect()
+        try:
+            self._initialize(connection)
+            cursor = connection.execute(
+                """
+                INSERT OR IGNORE INTO research_memory_events
+                    (run_id, recorded_at, record_json, content_hash)
+                VALUES (?, ?, ?, ?)
+                """,
+                (run_id, datetime.now(timezone.utc).isoformat(), serialized, content_hash),
+            )
+            connection.commit()
+            return cursor.rowcount == 1
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
 
     @staticmethod
     def _initialize(connection: sqlite3.Connection) -> None:
@@ -117,3 +168,8 @@ class ResearchMemoryStore:
     def _validate_research_only(record: Mapping[str, Any]) -> None:
         if any(bool(record.get(field)) for field in ("paper_capital_allowed", "live_allowed", "promotable")):
             raise ValueError("research memory events cannot enable paper/live/promotion")
+
+
+def _is_transient_lock(error: sqlite3.OperationalError) -> bool:
+    message = str(error).lower()
+    return "locked" in message or "busy" in message
