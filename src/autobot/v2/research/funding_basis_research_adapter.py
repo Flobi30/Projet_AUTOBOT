@@ -54,6 +54,9 @@ class FundingBasisResearchConfig:
     max_data_rows: int = 250_000
     order_notional_eur: float = 100.0
     min_funding_observations: int = 30
+    min_signal_eligible_bars: int = 30
+    max_funding_age_hours: float = 24.0
+    max_basis_age_hours: float = 2.0
     timeframe_preference: tuple[str, ...] = ("1h", "15m")
     evaluation_start_at: datetime | None = None
     evaluation_end_at: datetime | None = None
@@ -77,6 +80,12 @@ class FundingBasisResearchConfig:
             raise ValueError("order_notional_eur must be positive")
         if self.min_funding_observations < 10:
             raise ValueError("min_funding_observations must be at least 10")
+        if self.min_signal_eligible_bars < 10:
+            raise ValueError("min_signal_eligible_bars must be at least 10")
+        if self.max_funding_age_hours <= 0.0:
+            raise ValueError("max_funding_age_hours must be positive")
+        if self.max_basis_age_hours <= 0.0:
+            raise ValueError("max_basis_age_hours must be positive")
         for value in (self.evaluation_start_at, self.evaluation_end_at):
             if value is not None and (value.tzinfo is None or value.utcoffset() is None):
                 raise ValueError("evaluation bounds must be timezone-aware")
@@ -99,6 +108,7 @@ class FundingBasisAvailability:
     futures_to_spot: Mapping[str, str]
     spot_row_count: int
     derivatives_feature_count: int
+    signal_eligible_bars_by_symbol: Mapping[str, int] = field(default_factory=dict)
     blockers: tuple[str, ...] = ()
     warnings: tuple[str, ...] = ()
 
@@ -106,6 +116,7 @@ class FundingBasisAvailability:
         return {
             **asdict(self),
             "futures_to_spot": dict(self.futures_to_spot),
+            "signal_eligible_bars_by_symbol": dict(self.signal_eligible_bars_by_symbol),
         }
 
 
@@ -392,17 +403,37 @@ def _build_availability(
     )
     selected_symbols = tuple(sorted(set(futures_to_spot.values())))
     blockers: list[str] = []
+    signal_eligible_bars_by_symbol: dict[str, int] = {}
     if duplicate_count:
         blockers.append("spot_ohlcv_duplicates")
     if not selected_symbols:
         blockers.append("explicit_perpetual_to_spot_mapping_missing")
     if not selected_timeframe:
         blockers.append("spot_ohlcv_timeframe_missing")
+    bars_by_symbol = _spot_groups(
+        spot_bars,
+        symbols=selected_symbols,
+        timeframe=selected_timeframe or "",
+    )
     for futures_symbol, spot_symbol in futures_to_spot.items():
-        funding_count = len(observations.get(futures_symbol, {}).get("funding_rate_relative", ()))
-        basis_count = len(observations.get(futures_symbol, {}).get("basis_bps", ()))
+        funding = observations.get(futures_symbol, {}).get("funding_rate_relative", ())
+        basis = observations.get(futures_symbol, {}).get("basis_bps", ())
+        funding_count = len(funding)
+        basis_count = len(basis)
         if funding_count < config.min_funding_observations or not basis_count:
             blockers.append(f"derivatives_history_insufficient:{spot_symbol}")
+            continue
+        eligible_count = _signal_eligible_spot_bar_count(
+            bars_by_symbol.get(spot_symbol, ()),
+            funding=funding,
+            basis=basis,
+            min_funding_observations=config.min_funding_observations,
+            max_funding_age_hours=config.max_funding_age_hours,
+            max_basis_age_hours=config.max_basis_age_hours,
+        )
+        signal_eligible_bars_by_symbol[spot_symbol] = eligible_count
+        if eligible_count < config.min_signal_eligible_bars:
+            blockers.append(f"spot_derivatives_overlap_insufficient:{spot_symbol}")
     return (
         FundingBasisAvailability(
             adapter_id=ADAPTER_ID,
@@ -415,6 +446,7 @@ def _build_availability(
             derivatives_feature_count=sum(
                 len(rows) for features in observations.values() for rows in features.values()
             ),
+            signal_eligible_bars_by_symbol=signal_eligible_bars_by_symbol,
             blockers=tuple(dict.fromkeys(blockers)),
             warnings=(
                 "derivatives_context_is_directional_only; spot_eur_returns_are_calculated_without_usd_eur_price_conversion",
@@ -558,6 +590,72 @@ def _select_spot_timeframe(
     return None
 
 
+def _signal_eligible_spot_bar_count(
+    bars: Sequence[MarketBar],
+    *,
+    funding: Sequence[_FeatureObservation],
+    basis: Sequence[_FeatureObservation],
+    min_funding_observations: int,
+    max_funding_age_hours: float,
+    max_basis_age_hours: float,
+) -> int:
+    """Count point-in-time spot bars that can actually consume fresh inputs.
+
+    The old availability gate checked spot and derivatives history independently.
+    That could report READY for non-overlapping histories.  This linear scan
+    instead proves that both required derivatives features were available and
+    fresh at enough closed spot bars to support a bounded research evaluation.
+    It is deliberately a data-quality check only: no signal or trade is made.
+    """
+
+    if not bars or not funding or not basis:
+        return 0
+    ordered_bars = sorted(bars, key=lambda item: item.timestamp)
+    ordered_funding = sorted(funding, key=lambda item: (item.available_time, item.event_time))
+    ordered_basis = sorted(basis, key=lambda item: (item.available_time, item.event_time))
+    funding_index = 0
+    basis_index = 0
+    current_funding: _FeatureObservation | None = None
+    current_basis: _FeatureObservation | None = None
+    eligible = 0
+    for bar in ordered_bars:
+        while funding_index < len(ordered_funding) and ordered_funding[funding_index].available_time <= bar.timestamp:
+            current_funding = ordered_funding[funding_index]
+            funding_index += 1
+        while basis_index < len(ordered_basis) and ordered_basis[basis_index].available_time <= bar.timestamp:
+            current_basis = ordered_basis[basis_index]
+            basis_index += 1
+        if funding_index < min_funding_observations or current_funding is None or current_basis is None:
+            continue
+        if _features_are_fresh_at_signal(
+            signal_at=bar.timestamp,
+            funding=current_funding,
+            basis=current_basis,
+            max_funding_age_hours=max_funding_age_hours,
+            max_basis_age_hours=max_basis_age_hours,
+        ):
+            eligible += 1
+    return eligible
+
+
+def _features_are_fresh_at_signal(
+    *,
+    signal_at: datetime,
+    funding: _FeatureObservation,
+    basis: _FeatureObservation,
+    max_funding_age_hours: float,
+    max_basis_age_hours: float,
+) -> bool:
+    """Return whether both already-available feature values are still usable."""
+
+    funding_age_seconds = (signal_at - funding.available_time).total_seconds()
+    basis_age_seconds = (signal_at - basis.available_time).total_seconds()
+    return (
+        funding_age_seconds <= max_funding_age_hours * 3_600.0
+        and basis_age_seconds <= max_basis_age_hours * 3_600.0
+    )
+
+
 def _simulate_variant(
     *,
     config: FundingBasisResearchConfig,
@@ -593,6 +691,14 @@ def _simulate_variant(
             current_funding = _latest_available(funding, signal_bar.timestamp)
             current_basis = _latest_available(basis, signal_bar.timestamp)
             if current_funding is None or current_basis is None:
+                continue
+            if not _features_are_fresh_at_signal(
+                signal_at=signal_bar.timestamp,
+                funding=current_funding,
+                basis=current_basis,
+                max_funding_age_hours=config.max_funding_age_hours,
+                max_basis_age_hours=config.max_basis_age_hours,
+            ):
                 continue
             funding_history = [
                 item.value

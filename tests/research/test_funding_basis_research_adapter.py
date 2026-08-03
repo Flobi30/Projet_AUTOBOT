@@ -153,6 +153,32 @@ def test_availability_reports_short_forward_history_without_generating_trades(tm
     assert availability.blockers == ("derivatives_history_insufficient:BTCZEUR",)
 
 
+def test_availability_requires_fresh_point_in_time_spot_derivatives_overlap(tmp_path):
+    spot_dir = _spot_data(tmp_path)
+    snapshot = _derivatives_snapshot(
+        tmp_path,
+        status="READY",
+        start=datetime(2025, 1, 1, tzinfo=timezone.utc),
+    )
+
+    availability = build_funding_basis_availability(
+        FundingBasisResearchConfig(
+            run_id="pytest_funding_basis_non_overlapping",
+            spot_data_paths=(spot_dir,),
+            derivatives_feature_snapshot_manifest=snapshot,
+            template=_template(),
+            symbols=("BTCZEUR",),
+            min_funding_observations=10,
+            min_signal_eligible_bars=10,
+        )
+    )
+
+    assert availability.available is False
+    assert availability.status == "WAITING_FOR_MORE_DATA"
+    assert availability.signal_eligible_bars_by_symbol == {"BTCZEUR": 0}
+    assert availability.blockers == ("spot_derivatives_overlap_insufficient:BTCZEUR",)
+
+
 def test_alpha_runner_routes_funding_basis_smoke_to_the_research_only_adapter(tmp_path):
     spot_dir = _spot_data(tmp_path)
     snapshot = _derivatives_snapshot(tmp_path, status="READY")
@@ -256,9 +282,10 @@ def _derivatives_snapshot(
     blockers: list[str] | None = None,
     availability_delay_hours: int = 0,
     observation_count: int = 120,
+    start: datetime | None = None,
 ) -> Path:
     features = tmp_path / "features.csv"
-    start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    start = start or datetime(2026, 1, 1, tzinfo=timezone.utc)
     with features.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(
             handle,
