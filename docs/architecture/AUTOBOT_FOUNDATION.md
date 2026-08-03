@@ -103,9 +103,17 @@ in SQLite read-only mode, re-verifies the feature publication, requires the
 decision time to equal the vector availability time and refuses a stale,
 mismatched or over-mandate bind. Its result is metadata for a *blocked*
 shadow-preview test only: it cannot start the runtime, create an order, enable
-paper capital, promote a strategy or enable live trading. Multi-source
-spot/derivatives hand-offs remain blocked until they can prove one coherent
-common observation time.
+paper capital, promote a strategy or enable live trading.
+
+`DerivativesSpotResearchContext` now provides the corresponding multi-source
+research boundary for one explicit Kraken Futures perpetual and one explicit
+AUTOBOT spot market. It requires a material-verified, forward-only derivative
+bundle, a manifest-sealed futures-to-spot mapping, the same base asset and one
+common observation time. It never converts a perpetual USD price to EUR; the
+spot vector remains the only future source of EUR PnL, costs and capacity.
+This is not yet an artifact hand-off: no strategy adapter, shadow ledger or
+runtime consumer accepts the context until its own provenance and governance
+tests are added.
 
 ## Shadow-artifact readiness audit
 
