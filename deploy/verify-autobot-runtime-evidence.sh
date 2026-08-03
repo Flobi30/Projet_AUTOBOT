@@ -116,7 +116,11 @@ require_safety_flag "LIVE_TRADING_CONFIRMATION=false"
 # directly, using only pure authorization functions. This starts no AUTOBOT
 # service, opens no database, calls no exchange endpoint and reads no secret.
 runtime_lock_payload="$(
-  docker exec "${CONTAINER_ID}" python -c '
+  # The production image keeps sources below /app/src while its service starts
+  # the file path directly from /app.  Pin the pure probe to the package root
+  # so it verifies the code baked into the running image instead of relying on
+  # the service entrypoint's incidental import path.
+  docker exec --workdir /app/src "${CONTAINER_ID}" python -c '
 import json
 
 from autobot.v2.execution_authorization import (

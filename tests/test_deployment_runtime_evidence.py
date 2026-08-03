@@ -170,7 +170,7 @@ def test_runtime_evidence_script_is_read_only_and_requires_strict_safety_proof()
     assert "COLONY_AUTO_LIVE_PROMOTION=false" in script
     assert "STRATEGY_ROUTER_LIVE_ENABLED=false" in script
     assert "LIVE_TRADING_CONFIRMATION=false" in script
-    assert 'docker exec "${CONTAINER_ID}" python -c' in script
+    assert 'docker exec --workdir /app/src "${CONTAINER_ID}" python -c' in script
     assert '"program_execution_locked": program_execution_locked()' in script
     assert '"paper_execution_authorized": paper_execution_authorized()' in script
     assert '"real_order_mutation_authorized": real_order_mutation_authorized()' in script
