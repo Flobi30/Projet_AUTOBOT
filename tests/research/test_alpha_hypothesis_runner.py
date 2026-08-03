@@ -293,7 +293,12 @@ def test_alpha_runner_cli_is_registered():
     assert args.holdout_partition_manifest is None
 
 
-def test_material_alpha_runner_cli_requires_reproducibility_inputs_before_any_data_read():
+def test_material_alpha_runner_cli_requires_reproducibility_inputs_before_any_data_read(monkeypatch):
+    # The second assertion exercises image validation.  Pin the commit through
+    # the supported runtime contract so this boundary test does not depend on
+    # a local .git directory or the git executable being present in a test
+    # container.
+    monkeypatch.setenv("AUTOBOT_COMMIT", "pytest-commit")
     missing_feature_manifest = _build_parser().parse_args(
         ["alpha-hypothesis-runner", "--hypothesis-id", "long_trend"]
     )
