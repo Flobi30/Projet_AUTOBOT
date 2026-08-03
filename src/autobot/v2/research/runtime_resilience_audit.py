@@ -231,7 +231,7 @@ def _record_sqlite_operational_failure(
     reasons: list[str],
     error: sqlite3.OperationalError,
 ) -> None:
-    """Treat only busy/locked evidence as a temporary SQLite lock.
+    """Classify transient locks and snapshot-storage exhaustion precisely.
 
     A read-only schema error means the persistence contract is no longer
     trustworthy. It is therefore stricter than a transient lock and must halt
@@ -242,6 +242,10 @@ def _record_sqlite_operational_failure(
     if "locked" in message or "busy" in message:
         incidents.append("SQLITE_LOCKED")
         reasons.append(f"sqlite_locked:{type(error).__name__}")
+        return
+    if "disk is full" in message or "no space left" in message:
+        incidents.append("DISK_FULL")
+        reasons.append(f"sqlite_snapshot_storage_exhausted:{type(error).__name__}")
         return
     incidents.append("SQLITE_CORRUPT")
     reasons.append(f"sqlite_operational_error:{type(error).__name__}")

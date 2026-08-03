@@ -59,6 +59,13 @@ filesystem as `DISK_FULL` for the future risk envelope.  The controlled image
 rebuild helper enforces the same minimum before Docker can allocate new build
 layers.  Neither check deletes anything automatically.
 
+The resilience audit creates its read-only SQLite snapshot in an isolated
+temporary filesystem sized from the runtime database (three times its size,
+plus 64 MiB headroom, capped at 1 GiB).  Snapshot capacity exhaustion is
+reported as `DISK_FULL`, never mislabelled as SQLite corruption.  A database
+that exceeds this explicit audit bound remains fail-closed until its retention
+and snapshot capacity are reviewed.
+
 When this condition occurs, first confirm that no AUTOBOT rebuild or isolated
 research collector is active.  Then inspect the host without printing any
 environment values or secrets:

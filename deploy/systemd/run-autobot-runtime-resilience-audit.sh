@@ -12,6 +12,10 @@ MAX_DATA_AGE_SECONDS="${AUTOBOT_RUNTIME_RESILIENCE_MAX_DATA_AGE_SECONDS:-300}"
 MAX_WEBSOCKET_AGE_SECONDS="${AUTOBOT_RUNTIME_RESILIENCE_MAX_WEBSOCKET_AGE_SECONDS:-60}"
 MIN_FREE_DISK_BYTES="${AUTOBOT_RUNTIME_RESILIENCE_MIN_FREE_DISK_BYTES:-2147483648}"
 HEALTH_WAIT_SECONDS="${AUTOBOT_RUNTIME_RESILIENCE_HEALTH_WAIT_SECONDS:-45}"
+SNAPSHOT_SPACE_MULTIPLIER="${AUTOBOT_RUNTIME_RESILIENCE_SNAPSHOT_SPACE_MULTIPLIER:-3}"
+SNAPSHOT_SPACE_HEADROOM_BYTES="${AUTOBOT_RUNTIME_RESILIENCE_SNAPSHOT_SPACE_HEADROOM_BYTES:-67108864}"
+MAX_SNAPSHOT_TMPFS_BYTES="${AUTOBOT_RUNTIME_RESILIENCE_MAX_SNAPSHOT_TMPFS_BYTES:-1073741824}"
+MEMORY_HEADROOM_BYTES="${AUTOBOT_RUNTIME_RESILIENCE_MEMORY_HEADROOM_BYTES:-134217728}"
 LOCK_PATH="${AUTOBOT_RUNTIME_RESILIENCE_AUDIT_LOCK_PATH:-/run/lock/autobot-runtime-resilience-audit.lock}"
 REPORT_DIR="${AUTOBOT_RUNTIME_RESILIENCE_REPORT_DIR:-${REPO_DIR}/data/research/reports/runtime_resilience}"
 REPORT_PATH="${REPORT_DIR}/latest.json"
@@ -21,8 +25,12 @@ if [[ "${AUDIT_ENABLED}" != "true" ]]; then
   echo "AUTOBOT runtime resilience audit is disabled."
   exit 0
 fi
-if ! [[ "${HEALTH_WAIT_SECONDS}" =~ ^[0-9]+$ ]]; then
-  echo "AUTOBOT runtime resilience health wait must be a non-negative integer." >&2
+if ! [[ "${HEALTH_WAIT_SECONDS}" =~ ^[0-9]+$ ]] \
+  || ! [[ "${SNAPSHOT_SPACE_MULTIPLIER}" =~ ^[1-9][0-9]*$ ]] \
+  || ! [[ "${SNAPSHOT_SPACE_HEADROOM_BYTES}" =~ ^[0-9]+$ ]] \
+  || ! [[ "${MAX_SNAPSHOT_TMPFS_BYTES}" =~ ^[1-9][0-9]*$ ]] \
+  || ! [[ "${MEMORY_HEADROOM_BYTES}" =~ ^[0-9]+$ ]]; then
+  echo "AUTOBOT runtime resilience audit capacity settings are invalid." >&2
   exit 1
 fi
 
@@ -32,7 +40,8 @@ if ! flock -n 9; then
   exit 0
 fi
 
-if [[ ! -r "${REPO_DIR}/data/autobot_state.db" ]]; then
+STATE_DB_HOST_PATH="${REPO_DIR}/data/autobot_state.db"
+if [[ ! -r "${STATE_DB_HOST_PATH}" ]]; then
   echo "AUTOBOT runtime SQLite database is unavailable." >&2
   exit 1
 fi
@@ -40,6 +49,18 @@ if ! docker image inspect "${IMAGE}" >/dev/null 2>&1; then
   echo "AUTOBOT resilience audit image is unavailable: ${IMAGE}" >&2
   exit 1
 fi
+
+STATE_DB_BYTES="$(stat --format=%s "${STATE_DB_HOST_PATH}")"
+if ! [[ "${STATE_DB_BYTES}" =~ ^[0-9]+$ ]]; then
+  echo "AUTOBOT runtime SQLite database size is unavailable." >&2
+  exit 1
+fi
+SNAPSHOT_TMPFS_BYTES=$((STATE_DB_BYTES * SNAPSHOT_SPACE_MULTIPLIER + SNAPSHOT_SPACE_HEADROOM_BYTES))
+if (( SNAPSHOT_TMPFS_BYTES > MAX_SNAPSHOT_TMPFS_BYTES )); then
+  echo "AUTOBOT runtime resilience audit snapshot exceeds its bounded temporary-storage limit." >&2
+  exit 1
+fi
+AUDIT_MEMORY_BYTES=$((SNAPSHOT_TMPFS_BYTES + MEMORY_HEADROOM_BYTES))
 
 websocket_status="unknown"
 websocket_observed_at=""
@@ -81,10 +102,10 @@ docker run --rm \
   --network none \
   --no-healthcheck \
   --read-only \
-  --tmpfs /tmp:rw,noexec,nosuid,size=64m \
+  --tmpfs "/tmp:rw,noexec,nosuid,size=${SNAPSHOT_TMPFS_BYTES}" \
   --security-opt no-new-privileges \
   --cap-drop ALL \
-  --memory 256m \
+  --memory "${AUDIT_MEMORY_BYTES}" \
   --cpus 0.25 \
   --env PYTHONPATH=/app/src \
   --env PYTHONUNBUFFERED=1 \

@@ -19,13 +19,20 @@ def test_runtime_resilience_audit_script_has_a_read_only_non_authorizing_boundar
     assert 'AUTOBOT_RUNTIME_RESILIENCE_AUDIT_ENABLED:-false' in script
     assert 'AUTOBOT_RUNTIME_RESILIENCE_HEALTH_WAIT_SECONDS:-45' in script
     assert 'AUTOBOT_RUNTIME_RESILIENCE_MAX_WEBSOCKET_AGE_SECONDS:-60' in script
+    assert 'AUTOBOT_RUNTIME_RESILIENCE_SNAPSHOT_SPACE_MULTIPLIER:-3' in script
+    assert 'AUTOBOT_RUNTIME_RESILIENCE_MAX_SNAPSHOT_TMPFS_BYTES:-1073741824' in script
+    assert 'STATE_DB_BYTES="$(stat --format=%s "${STATE_DB_HOST_PATH}")"' in script
+    assert 'SNAPSHOT_TMPFS_BYTES=$((STATE_DB_BYTES * SNAPSHOT_SPACE_MULTIPLIER + SNAPSHOT_SPACE_HEADROOM_BYTES))' in script
+    assert 'snapshot exceeds its bounded temporary-storage limit' in script
     assert 'curl --fail --silent --max-time 5 http://127.0.0.1:8080/health' in script
     assert 'health_deadline=$((SECONDS + HEALTH_WAIT_SECONDS))' in script
     assert 'websocket_status="connected"' in script
     assert "--network none" in script
     assert "--read-only" in script
+    assert '--tmpfs "/tmp:rw,noexec,nosuid,size=${SNAPSHOT_TMPFS_BYTES}"' in script
     assert "--cap-drop ALL" in script
     assert "--security-opt no-new-privileges" in script
+    assert '--memory "${AUDIT_MEMORY_BYTES}"' in script
     assert '"${REPO_DIR}/data:/app/data:ro"' in script
     assert "runtime-resilience-audit" in script
     assert "--websocket-status" in script

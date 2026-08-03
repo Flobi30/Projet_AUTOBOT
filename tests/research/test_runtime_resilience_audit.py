@@ -121,6 +121,32 @@ def test_runtime_resilience_audit_fails_closed_when_snapshot_is_temporarily_lock
     assert report.fail_closed.action != "NORMAL"
 
 
+def test_runtime_resilience_audit_classifies_snapshot_capacity_exhaustion_as_disk_full(tmp_path, monkeypatch):
+    now = datetime(2026, 7, 16, 12, tzinfo=timezone.utc)
+    state_db = _state_db(tmp_path / "state.sqlite3", now.isoformat())
+
+    @contextmanager
+    def _full_snapshot(_source: Path):
+        raise sqlite3.OperationalError("database or disk is full")
+        yield tmp_path / "unreachable.sqlite3"
+
+    monkeypatch.setattr(
+        "autobot.v2.research.runtime_resilience_audit._temporary_sqlite_audit_snapshot",
+        _full_snapshot,
+    )
+    report = audit_runtime_resilience(
+        state_db,
+        min_free_disk_bytes=0,
+        websocket_status="connected",
+        websocket_observed_at=now,
+        evaluated_at=now,
+    )
+
+    assert report.incident_types == ("DATA_STALE", "DISK_FULL")
+    assert report.fail_closed.action == "HALT"
+    assert "sqlite_snapshot_storage_exhausted:OperationalError" in report.reasons
+
+
 def test_runtime_resilience_audit_fails_closed_for_stale_data_disk_and_websocket(tmp_path):
     now = datetime(2026, 7, 16, 12, tzinfo=timezone.utc)
     state_db = _state_db(tmp_path / "state.sqlite3", (now - timedelta(minutes=20)).isoformat())
