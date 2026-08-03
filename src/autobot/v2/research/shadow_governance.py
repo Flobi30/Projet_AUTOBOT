@@ -333,14 +333,21 @@ def _data_snapshot_id_from_feature_snapshots(
         return snapshots[0].source_snapshot_id
     if len(snapshots) != 2:
         raise ShadowGovernanceError("unsupported feature snapshot composition")
-    by_kind = {snapshot.snapshot_kind: snapshot for snapshot in snapshots}
-    if set(by_kind) != {"FEATURE_SNAPSHOT", "DERIVATIVES_POINT_IN_TIME"}:
+    derivatives = [
+        snapshot for snapshot in snapshots if snapshot.snapshot_kind == "DERIVATIVES_POINT_IN_TIME"
+    ]
+    spot = [
+        snapshot
+        for snapshot in snapshots
+        if snapshot.snapshot_kind in {"FEATURE_SNAPSHOT", "CANONICAL_FEATURE_SNAPSHOT"}
+    ]
+    if len(spot) != 1 or len(derivatives) != 1:
         raise ShadowGovernanceError("unsupported feature snapshot composition")
     return "combined_" + sha256(
         json.dumps(
             {
-                "spot": by_kind["FEATURE_SNAPSHOT"].source_snapshot_id,
-                "derivatives": by_kind["DERIVATIVES_POINT_IN_TIME"].source_snapshot_id,
+                "spot": spot[0].source_snapshot_id,
+                "derivatives": derivatives[0].source_snapshot_id,
             },
             sort_keys=True,
             separators=(",", ":"),

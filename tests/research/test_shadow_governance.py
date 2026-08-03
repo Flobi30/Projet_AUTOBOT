@@ -430,6 +430,11 @@ def test_strategy_artifact_binds_data_snapshot_to_feature_evidence():
 
     assert combined.data_snapshot_id == combined_snapshot_id
 
+    canonical_spot = replace(_feature_snapshot(), snapshot_kind="CANONICAL_FEATURE_SNAPSHOT")
+    canonical_combined = replace(combined, feature_snapshots=(canonical_spot, derivatives))
+
+    assert canonical_combined.data_snapshot_id == combined_snapshot_id
+
 
 def test_shadow_artifact_rejects_feature_snapshot_without_verified_bundle_content():
     unverified = replace(
