@@ -1,9 +1,15 @@
+import io
+import urllib.error
+
 import pytest
+
+import autobot.v2.research.kraken_symbol_mapping as kraken_symbol_mapping
 
 from autobot.v2.research.kraken_symbol_mapping import (
     AUTOBOT_DEFAULT_ACTIVE_SYMBOLS,
     build_kraken_public_symbol_registry,
     detect_active_autobot_symbols,
+    fetch_kraken_public_asset_pairs,
     preflight_kraken_public_symbols,
 )
 
@@ -82,3 +88,77 @@ def test_preflight_passes_all_default_active_symbols():
 def test_preflight_fails_fast_for_unknown_symbol():
     with pytest.raises(ValueError, match="Kraken public symbol mapping missing"):
         preflight_kraken_public_symbols(("TRXEUR", "BADPAIR"), asset_pairs_fetcher=_asset_pairs_fixture)
+
+
+def test_public_asset_pairs_retries_transient_timeout_without_using_stale_mapping(monkeypatch):
+    attempts = []
+    delays = []
+    responses = [
+        urllib.error.URLError("temporary timeout"),
+        urllib.error.URLError("temporary timeout"),
+        io.BytesIO(b'{"error": [], "result": {"TRXEUR": {"altname": "TRXEUR"}}}'),
+    ]
+
+    def opener(url, *, timeout):
+        attempts.append((url, timeout))
+        response = responses.pop(0)
+        if isinstance(response, BaseException):
+            raise response
+        return response
+
+    fetch_kraken_public_asset_pairs.cache_clear()
+    monkeypatch.setattr(kraken_symbol_mapping.urllib.request, "urlopen", opener)
+    monkeypatch.setattr(kraken_symbol_mapping, "_sleep", delays.append)
+
+    try:
+        result = fetch_kraken_public_asset_pairs()
+    finally:
+        fetch_kraken_public_asset_pairs.cache_clear()
+
+    assert result == {"TRXEUR": {"altname": "TRXEUR"}}
+    assert [timeout for _, timeout in attempts] == [20.0, 20.0, 20.0]
+    assert delays == [1.0, 2.0]
+
+
+def test_public_asset_pairs_does_not_retry_a_permanent_http_error(monkeypatch):
+    attempts = []
+    delays = []
+
+    def opener(url, *, timeout):
+        attempts.append((url, timeout))
+        raise urllib.error.HTTPError(url, 400, "bad request", hdrs=None, fp=None)
+
+    fetch_kraken_public_asset_pairs.cache_clear()
+    monkeypatch.setattr(kraken_symbol_mapping.urllib.request, "urlopen", opener)
+    monkeypatch.setattr(kraken_symbol_mapping, "_sleep", delays.append)
+
+    try:
+        with pytest.raises(urllib.error.HTTPError, match="bad request"):
+            fetch_kraken_public_asset_pairs()
+    finally:
+        fetch_kraken_public_asset_pairs.cache_clear()
+
+    assert len(attempts) == 1
+    assert delays == []
+
+
+def test_public_asset_pairs_rejects_malformed_payload_without_retry(monkeypatch):
+    attempts = []
+    delays = []
+
+    def opener(url, *, timeout):
+        attempts.append((url, timeout))
+        return io.BytesIO(b"[]")
+
+    fetch_kraken_public_asset_pairs.cache_clear()
+    monkeypatch.setattr(kraken_symbol_mapping.urllib.request, "urlopen", opener)
+    monkeypatch.setattr(kraken_symbol_mapping, "_sleep", delays.append)
+
+    try:
+        with pytest.raises(ValueError, match="must be an object"):
+            fetch_kraken_public_asset_pairs()
+    finally:
+        fetch_kraken_public_asset_pairs.cache_clear()
+
+    assert len(attempts) == 1
+    assert delays == []

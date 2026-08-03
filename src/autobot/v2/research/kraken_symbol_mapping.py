@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 import os
+import time
+import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from functools import lru_cache
@@ -20,6 +22,10 @@ from .symbol_normalization import expand_research_symbol_aliases, normalize_rese
 
 
 KRAKEN_PUBLIC_ASSET_PAIRS_URL = "https://api.kraken.com/0/public/AssetPairs"
+KRAKEN_PUBLIC_ASSET_PAIRS_TIMEOUT_SECONDS = 20.0
+KRAKEN_PUBLIC_ASSET_PAIRS_RETRY_ATTEMPTS = 2
+KRAKEN_PUBLIC_ASSET_PAIRS_RETRY_BACKOFF_SECONDS = 1.0
+_sleep = time.sleep
 
 # These are explicit Kraken asset identifiers, not string heuristics.  Kraken's
 # public AssetPairs response identifies both legs of a market, but uses a small
@@ -188,21 +194,46 @@ def detect_active_autobot_symbols(
 
 @lru_cache(maxsize=1)
 def fetch_kraken_public_asset_pairs() -> dict[str, Mapping[str, Any]]:
-    """Fetch public Kraken asset pairs from the official REST API."""
+    """Fetch public Kraken asset pairs with a bounded transient retry budget.
+
+    Asset-pair metadata is a hard research-data contract.  A stale fallback
+    could silently remap a market, so permanent failures remain visible and
+    block the collection.  Only known transport and exchange-transient errors
+    receive a short bounded retry.
+    """
 
     # Keep direct public endpoint use behind the same fail-closed static
     # preflight as the research collectors that consume this mapping.
     assert_public_collector_boundary(("kraken_symbol_mapping",))
+    for attempt in range(KRAKEN_PUBLIC_ASSET_PAIRS_RETRY_ATTEMPTS + 1):
+        try:
+            with urllib.request.urlopen(  # nosec B310 - public fixed HTTPS endpoint.
+                KRAKEN_PUBLIC_ASSET_PAIRS_URL,
+                timeout=KRAKEN_PUBLIC_ASSET_PAIRS_TIMEOUT_SECONDS,
+            ) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            if not isinstance(payload, Mapping):
+                raise ValueError("Kraken AssetPairs payload must be an object")
+            errors = payload.get("error") or []
+            if errors:
+                raise ValueError(f"Kraken AssetPairs error: {errors}")
+            result = payload.get("result")
+            if not isinstance(result, Mapping):
+                raise ValueError("Kraken AssetPairs payload is missing a result mapping")
+            return {str(key): value for key, value in result.items() if isinstance(value, Mapping)}
+        except (urllib.error.URLError, TimeoutError) as exc:
+            if not _retryable_kraken_public_fetch_error(exc) or attempt >= KRAKEN_PUBLIC_ASSET_PAIRS_RETRY_ATTEMPTS:
+                raise
+            _sleep(KRAKEN_PUBLIC_ASSET_PAIRS_RETRY_BACKOFF_SECONDS * (2**attempt))
+    raise AssertionError("bounded Kraken AssetPairs retry loop exited unexpectedly")
 
-    with urllib.request.urlopen(KRAKEN_PUBLIC_ASSET_PAIRS_URL, timeout=20) as response:  # nosec B310 - public fixed HTTPS endpoint.
-        payload = json.loads(response.read().decode("utf-8"))
-    errors = payload.get("error") or []
-    if errors:
-        raise ValueError(f"Kraken AssetPairs error: {errors}")
-    result = payload.get("result")
-    if not isinstance(result, Mapping):
-        raise ValueError("Kraken AssetPairs payload is missing a result mapping")
-    return {str(key): value for key, value in result.items() if isinstance(value, Mapping)}
+
+def _retryable_kraken_public_fetch_error(error: BaseException) -> bool:
+    """Retry only transient public Kraken failures, never malformed data."""
+
+    if isinstance(error, urllib.error.HTTPError):
+        return error.code in {408, 425, 429, 500, 502, 503, 504}
+    return isinstance(error, (urllib.error.URLError, TimeoutError))
 
 
 def build_kraken_public_symbol_registry(
