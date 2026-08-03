@@ -775,6 +775,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     paper_readiness_dossier.add_argument("--coverage-path", default="docs/architecture/layer_coverage.json")
     paper_readiness_dossier.add_argument(
+        "--repository-root",
+        default=None,
+        help="Optional source root used to resolve structured coverage evidence inside a container",
+    )
+    paper_readiness_dossier.add_argument(
         "--deployment-evidence-json",
         default=None,
         help="Exact non-secret JSON emitted by deploy/verify-autobot-runtime-evidence.sh",
@@ -790,6 +795,24 @@ def _build_parser() -> argparse.ArgumentParser:
     paper_readiness_dossier.add_argument("--restore-tested", action="store_true")
     paper_readiness_dossier.add_argument("--output", required=True)
     paper_readiness_dossier.set_defaults(handler=_cmd_paper_readiness_dossier)
+
+    layer_coverage_audit = subparsers.add_parser(
+        "layer-coverage-audit",
+        help="Audit evidence linked to VERIFIED 24-layer coverage rows without authorizing execution",
+    )
+    layer_coverage_audit.add_argument("--coverage-path", default="docs/architecture/layer_coverage.json")
+    layer_coverage_audit.add_argument(
+        "--repository-root",
+        default=None,
+        help="Optional source root used to resolve structured coverage evidence inside a container",
+    )
+    layer_coverage_audit.add_argument(
+        "--expected-source-commit",
+        default=None,
+        help="Optional reviewed commit; VERIFIED evidence must bind to it when supplied",
+    )
+    layer_coverage_audit.add_argument("--output", required=True)
+    layer_coverage_audit.set_defaults(handler=_cmd_layer_coverage_audit)
 
     runtime_oms_ledger_audit = subparsers.add_parser(
         "runtime-oms-ledger-audit",
@@ -3712,6 +3735,7 @@ def _cmd_paper_readiness_dossier(args: argparse.Namespace) -> int:
     )
     dossier = build_readiness_dossier_from_coverage(
         Path(args.coverage_path),
+        repository_root=Path(args.repository_root) if args.repository_root else None,
         kill_switch_tested=args.kill_switch_tested,
         reconciliation_tested=args.reconciliation_tested,
         restore_tested=args.restore_tested,
@@ -3724,6 +3748,32 @@ def _cmd_paper_readiness_dossier(args: argparse.Namespace) -> int:
     payload.update(
         {
             "dossier_path": str(destination),
+            "research_only": True,
+            "order_submission_attempted": False,
+        }
+    )
+    _print_json(payload)
+    return 0
+
+
+def _cmd_layer_coverage_audit(args: argparse.Namespace) -> int:
+    """Audit static layer evidence only; never touch runtime or order paths."""
+
+    from autobot.v2.research.resilience_readiness import (
+        audit_layer_coverage,
+        write_layer_coverage_audit,
+    )
+
+    audit = audit_layer_coverage(
+        Path(args.coverage_path),
+        repository_root=Path(args.repository_root) if args.repository_root else None,
+        expected_source_commit=args.expected_source_commit,
+    )
+    destination = write_layer_coverage_audit(audit, Path(args.output))
+    payload = audit.to_dict()
+    payload.update(
+        {
+            "audit_path": str(destination),
             "research_only": True,
             "order_submission_attempted": False,
         }

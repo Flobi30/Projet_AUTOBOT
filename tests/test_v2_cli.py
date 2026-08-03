@@ -2083,12 +2083,28 @@ def test_cli_fail_closed_drill_is_in_memory_and_never_authorizes_execution(capsy
 
 def test_cli_paper_readiness_dossier_binds_exact_vps_evidence_without_authorizing_execution(tmp_path, capsys):
     commit = "a" * 40
+    (tmp_path / "src").mkdir()
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "reports").mkdir()
+    (tmp_path / "src" / "component.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (tmp_path / "tests" / "test_component.py").write_text("def test_component(): pass\n", encoding="utf-8")
+    (tmp_path / "reports" / "runtime.md").write_text("healthy\n", encoding="utf-8")
     coverage_path = tmp_path / "coverage.json"
     coverage_path.write_text(
         json.dumps(
             {
+                "schema_version": 2,
                 "layers": [
-                    {"id": layer, "status": "VERIFIED"}
+                    {
+                        "id": layer,
+                        "status": "VERIFIED",
+                        "verification": {
+                            "source_commit": commit,
+                            "code_paths": ["src/component.py"],
+                            "test_paths": ["tests/test_component.py"],
+                            "runtime_evidence_paths": ["reports/runtime.md"],
+                        },
+                    }
                     for layer in (3, 5, 10, 11, 12, 13, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
                 ]
             }
@@ -2145,6 +2161,35 @@ def test_cli_paper_readiness_dossier_binds_exact_vps_evidence_without_authorizin
     assert output["order_submission_attempted"] is False
     assert output_path.is_file()
     assert f"Source commit: `{commit}`" in output_path.read_text(encoding="utf-8")
+
+
+def test_cli_layer_coverage_audit_fails_unproven_verified_rows_closed(tmp_path, capsys):
+    coverage_path = tmp_path / "coverage.json"
+    coverage_path.write_text(
+        json.dumps({"schema_version": 2, "layers": [{"id": 3, "status": "VERIFIED"}]}),
+        encoding="utf-8",
+    )
+    output_path = tmp_path / "coverage-audit.md"
+
+    exit_code = cli.main(
+        [
+            "layer-coverage-audit",
+            "--coverage-path",
+            str(coverage_path),
+            "--expected-source-commit",
+            "a" * 40,
+            "--output",
+            str(output_path),
+        ]
+    )
+
+    output = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert output["results"][0]["effective_status"] == "PARTIAL"
+    assert "layer_3_verification_missing" in output["blockers"]
+    assert output["research_only"] is True
+    assert output["order_submission_attempted"] is False
+    assert output_path.is_file()
 
 
 def test_cli_paper_readiness_dossier_blocks_mismatched_vps_evidence(tmp_path, capsys):

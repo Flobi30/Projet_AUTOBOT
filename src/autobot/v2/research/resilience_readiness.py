@@ -632,6 +632,55 @@ class EphemeralSQLiteRestoreDrillManifest:
 
 
 @dataclass(frozen=True)
+class LayerVerificationResult:
+    """One fail-closed assessment of a declared 24-layer coverage row.
+
+    ``VERIFIED`` is deliberately harder than a prose claim in the coverage
+    matrix.  It must bind the current source revision to concrete code, test
+    and runtime-evidence files inside the reviewed repository.  This value is
+    only review evidence; it never authorizes any execution mode.
+    """
+
+    layer_id: int
+    declared_status: str
+    effective_status: str
+    blockers: tuple[str, ...]
+    verification_source_commit: str | None = None
+
+
+@dataclass(frozen=True)
+class LayerCoverageAudit:
+    """Read-only validation of the machine-readable 24-layer matrix."""
+
+    coverage_path: str
+    repository_root: str
+    expected_source_commit: str | None
+    schema_version: int | None
+    results: tuple[LayerVerificationResult, ...]
+    blockers: tuple[str, ...]
+    research_only: bool = True
+    paper_capital_allowed: bool = False
+    live_allowed: bool = False
+    automatic_promotion_allowed: bool = False
+
+    def __post_init__(self) -> None:
+        if (
+            self.research_only is not True
+            or self.paper_capital_allowed
+            or self.live_allowed
+            or self.automatic_promotion_allowed
+        ):
+            raise ResilienceError("layer coverage audits cannot authorize execution")
+
+    @property
+    def effective_statuses(self) -> dict[int, str]:
+        return {result.layer_id: result.effective_status for result in self.results}
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
 class PaperReadinessDossier:
     status: str
     blockers: tuple[str, ...]
@@ -640,6 +689,7 @@ class PaperReadinessDossier:
     reconciliation_tested: bool
     restore_tested: bool
     deployment_evidence: RuntimeDeploymentEvidence | None = None
+    coverage_audit: LayerCoverageAudit | None = None
     paper_capital_allowed: bool = False
     live_allowed: bool = False
     automatic_promotion_allowed: bool = False
@@ -1125,6 +1175,218 @@ def run_ephemeral_sqlite_restore_drill(source: str | Path) -> EphemeralSQLiteRes
     )
 
 
+_COVERAGE_STATUSES = frozenset({"COMPLETE", "PARTIAL", "MISSING", "UNSAFE", "VERIFIED"})
+_VERIFIED_COVERAGE_PATH_FIELDS = ("code_paths", "test_paths", "runtime_evidence_paths")
+
+
+def audit_layer_coverage(
+    coverage_path: str | Path,
+    *,
+    repository_root: str | Path | None = None,
+    expected_source_commit: str | None = None,
+) -> LayerCoverageAudit:
+    """Validate whether declared ``VERIFIED`` coverage has concrete evidence.
+
+    The coverage matrix remains the human-maintained statement of programme
+    maturity.  This audit does not upgrade any row.  It only prevents a row
+    from being consumed as ``VERIFIED`` unless its structured evidence binds
+    a source revision to local code, test and runtime-evidence artefacts.
+    Relative paths are constrained to the repository root to prevent a review
+    from silently reaching into credentials or arbitrary host files.
+    """
+
+    coverage = Path(coverage_path).resolve()
+    if not coverage.is_file():
+        raise ResilienceError("layer coverage path does not exist")
+    root = _resolve_coverage_repository_root(coverage, repository_root)
+    if coverage != root and root not in coverage.parents:
+        raise ResilienceError("layer coverage path must remain inside the repository root")
+
+    expected_commit = _normalize_optional_commit(expected_source_commit, "expected_source_commit")
+    try:
+        payload = json.loads(coverage.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ResilienceError("layer coverage payload must be valid JSON") from exc
+    if not isinstance(payload, Mapping):
+        raise ResilienceError("layer coverage payload must be an object")
+    layers = payload.get("layers")
+    if not isinstance(layers, list):
+        raise ResilienceError("layer coverage payload must contain a layers list")
+
+    raw_schema_version = payload.get("schema_version")
+    if raw_schema_version is not None and (isinstance(raw_schema_version, bool) or not isinstance(raw_schema_version, int)):
+        raise ResilienceError("layer coverage schema_version must be an integer when supplied")
+
+    results: list[LayerVerificationResult] = []
+    blockers: list[str] = []
+    seen_ids: set[int] = set()
+    for raw_layer in layers:
+        if not isinstance(raw_layer, Mapping):
+            raise ResilienceError("every layer coverage row must be an object")
+        raw_id = raw_layer.get("id")
+        if isinstance(raw_id, bool) or not isinstance(raw_id, int) or raw_id <= 0:
+            raise ResilienceError("layer coverage row id must be a positive integer")
+        if raw_id in seen_ids:
+            raise ResilienceError(f"duplicate layer coverage id: {raw_id}")
+        seen_ids.add(raw_id)
+        status = str(raw_layer.get("status") or "").strip().upper()
+        if status not in _COVERAGE_STATUSES:
+            results.append(
+                LayerVerificationResult(
+                    layer_id=raw_id,
+                    declared_status=status or "MISSING",
+                    effective_status="UNSAFE",
+                    blockers=("unsupported_status",),
+                )
+            )
+            blockers.append(f"layer_{raw_id}_unsupported_status")
+            continue
+        if status != "VERIFIED":
+            results.append(
+                LayerVerificationResult(
+                    layer_id=raw_id,
+                    declared_status=status,
+                    effective_status=status,
+                    blockers=(),
+                )
+            )
+            continue
+
+        verification_blockers, source_commit = _verify_declared_layer_evidence(
+            raw_layer.get("verification"),
+            repository_root=root,
+            expected_source_commit=expected_commit,
+        )
+        effective_status = "VERIFIED" if not verification_blockers else "PARTIAL"
+        results.append(
+            LayerVerificationResult(
+                layer_id=raw_id,
+                declared_status=status,
+                effective_status=effective_status,
+                blockers=verification_blockers,
+                verification_source_commit=source_commit,
+            )
+        )
+        blockers.extend(f"layer_{raw_id}_verification_{blocker}" for blocker in verification_blockers)
+
+    return LayerCoverageAudit(
+        coverage_path=str(coverage),
+        repository_root=str(root),
+        expected_source_commit=expected_commit,
+        schema_version=raw_schema_version,
+        results=tuple(results),
+        blockers=tuple(sorted(set(blockers))),
+    )
+
+
+def write_layer_coverage_audit(audit: LayerCoverageAudit, destination: str | Path) -> Path:
+    """Write a compact, non-authorizing audit report for human review."""
+
+    path = Path(destination)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = [
+        "# AUTOBOT — Layer coverage evidence audit",
+        "",
+        "- This is a read-only governance audit; it cannot authorize paper, live or promotion.",
+        f"- Coverage matrix: `{audit.coverage_path}`",
+        f"- Repository root: `{audit.repository_root}`",
+        f"- Expected source commit: `{audit.expected_source_commit or 'UNBOUND'}`",
+        "",
+        "## Results",
+        "",
+        "| Layer | Declared | Effective | Evidence blockers |",
+        "| ---: | --- | --- | --- |",
+    ]
+    for result in audit.results:
+        detail = ", ".join(result.blockers) if result.blockers else "none"
+        lines.append(
+            f"| {result.layer_id} | `{result.declared_status}` | `{result.effective_status}` | `{detail}` |"
+        )
+    lines.extend(["", "## Global blockers", ""])
+    lines.extend(f"- `{blocker}`" for blocker in audit.blockers) if audit.blockers else lines.append("- None")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+
+def _resolve_coverage_repository_root(
+    coverage: Path,
+    repository_root: str | Path | None,
+) -> Path:
+    if repository_root is not None:
+        root = Path(repository_root).resolve()
+        if not root.is_dir():
+            raise ResilienceError("layer coverage repository root does not exist")
+        return root
+    for candidate in (coverage.parent, *coverage.parents):
+        if (
+            (candidate / "AGENTS.md").is_file()
+            or (candidate / "pyproject.toml").is_file()
+            or (candidate / "src" / "autobot").is_dir()
+        ):
+            return candidate.resolve()
+    return coverage.parent.resolve()
+
+
+def _normalize_optional_commit(value: str | None, field_name: str) -> str | None:
+    if value is None:
+        return None
+    normalized = str(value).strip().lower()
+    if not _is_commit_identifier(normalized):
+        raise ResilienceError(f"{field_name} must be a Git commit identifier")
+    return normalized
+
+
+def _verify_declared_layer_evidence(
+    verification: Any,
+    *,
+    repository_root: Path,
+    expected_source_commit: str | None,
+) -> tuple[tuple[str, ...], str | None]:
+    if not isinstance(verification, Mapping):
+        return ("missing",), None
+
+    blockers: list[str] = []
+    source_commit: str | None = None
+    raw_source_commit = verification.get("source_commit")
+    if not isinstance(raw_source_commit, str) or not _is_commit_identifier(raw_source_commit.strip().lower()):
+        blockers.append("source_commit_invalid")
+    else:
+        source_commit = raw_source_commit.strip().lower()
+        if expected_source_commit is None:
+            blockers.append("source_commit_unbound")
+        elif source_commit != expected_source_commit:
+            blockers.append("source_commit_mismatch")
+
+    for field_name in _VERIFIED_COVERAGE_PATH_FIELDS:
+        values = verification.get(field_name)
+        if isinstance(values, (str, bytes)) or not isinstance(values, Sequence) or not values:
+            blockers.append(f"{field_name}_missing")
+            continue
+        for raw_path in values:
+            if not isinstance(raw_path, str) or not raw_path.strip():
+                blockers.append(f"{field_name}_invalid")
+                continue
+            try:
+                resolved = _resolve_coverage_evidence_path(repository_root, raw_path)
+            except ResilienceError:
+                blockers.append(f"{field_name}_outside_repository")
+                continue
+            if not resolved.is_file():
+                blockers.append(f"{field_name}_not_found")
+
+    return tuple(sorted(set(blockers))), source_commit
+
+
+def _resolve_coverage_evidence_path(repository_root: Path, raw_path: str) -> Path:
+    candidate = Path(raw_path)
+    if candidate.is_absolute():
+        raise ResilienceError("coverage evidence paths must be repository-relative")
+    resolved = (repository_root / candidate).resolve()
+    if resolved != repository_root and repository_root not in resolved.parents:
+        raise ResilienceError("coverage evidence path escapes repository root")
+    return resolved
+
+
 def evaluate_human_paper_readiness(
     *,
     layer_statuses: Mapping[int, str],
@@ -1135,6 +1397,8 @@ def evaluate_human_paper_readiness(
     expected_source_commit: str | None = None,
     evaluated_at: datetime | None = None,
     max_deployment_evidence_age_seconds: int = 300,
+    coverage_audit: LayerCoverageAudit | None = None,
+    additional_blockers: Sequence[str] = (),
 ) -> PaperReadinessDossier:
     """Produce a non-authorizing dossier from explicit evidence only."""
 
@@ -1148,6 +1412,7 @@ def evaluate_human_paper_readiness(
     required_layers = (3, 5, 10, 11, 12, 13, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
     normalized = {int(key): str(value).upper() for key, value in layer_statuses.items()}
     blockers = [f"layer_{layer}_{normalized.get(layer, 'MISSING').lower()}" for layer in required_layers if normalized.get(layer) != "VERIFIED"]
+    blockers.extend(str(blocker) for blocker in additional_blockers if str(blocker).strip())
     if not kill_switch_tested:
         blockers.append("kill_switch_not_tested")
     if not reconciliation_tested:
@@ -1174,12 +1439,14 @@ def evaluate_human_paper_readiness(
         reconciliation_tested=reconciliation_tested,
         restore_tested=restore_tested,
         deployment_evidence=deployment_evidence,
+        coverage_audit=coverage_audit,
     )
 
 
 def build_readiness_dossier_from_coverage(
     coverage_path: str | Path,
     *,
+    repository_root: str | Path | None = None,
     kill_switch_tested: bool = False,
     reconciliation_tested: bool = False,
     restore_tested: bool = False,
@@ -1190,14 +1457,13 @@ def build_readiness_dossier_from_coverage(
 ) -> PaperReadinessDossier:
     """Read the versioned coverage matrix without changing any runtime flag."""
 
-    path = Path(coverage_path)
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    layers = payload.get("layers")
-    if not isinstance(layers, list):
-        raise ResilienceError("layer coverage payload must contain a layers list")
-    statuses = {int(item["id"]): str(item["status"]) for item in layers if "id" in item and "status" in item}
+    audit = audit_layer_coverage(
+        coverage_path,
+        repository_root=repository_root,
+        expected_source_commit=expected_source_commit,
+    )
     return evaluate_human_paper_readiness(
-        layer_statuses=statuses,
+        layer_statuses=audit.effective_statuses,
         kill_switch_tested=kill_switch_tested,
         reconciliation_tested=reconciliation_tested,
         restore_tested=restore_tested,
@@ -1205,6 +1471,8 @@ def build_readiness_dossier_from_coverage(
         expected_source_commit=expected_source_commit,
         evaluated_at=evaluated_at,
         max_deployment_evidence_age_seconds=max_deployment_evidence_age_seconds,
+        coverage_audit=audit,
+        additional_blockers=audit.blockers,
     )
 
 
@@ -1227,6 +1495,18 @@ def write_readiness_dossier(dossier: PaperReadinessDossier, destination: str | P
         "",
     ]
     lines.extend(f"- `{blocker}`" for blocker in dossier.blockers) if dossier.blockers else lines.append("- None")
+    if dossier.coverage_audit is not None:
+        audit = dossier.coverage_audit
+        lines.extend(
+            [
+                "",
+                "## Coverage evidence audit",
+                "",
+                f"- Coverage matrix: `{audit.coverage_path}`",
+                f"- Expected source commit: `{audit.expected_source_commit or 'UNBOUND'}`",
+                f"- Audit blockers: `{len(audit.blockers)}`",
+            ]
+        )
     if dossier.deployment_evidence is not None:
         evidence = dossier.deployment_evidence
         lines.extend(

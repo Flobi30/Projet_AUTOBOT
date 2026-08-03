@@ -205,7 +205,10 @@ or enable live trading.
 The machine-readable matrix is `docs/architecture/layer_coverage.json`.
 Every row identifies an owner, boundary contract, test and evidence path.
 `VERIFIED` means an integration test and runtime evidence, not merely a file
-with a similar name. The initial status is deliberately conservative.
+with a similar name. A `VERIFIED` row must also contain structured,
+repository-relative code/test/runtime evidence bound to the exact reviewed
+source commit; `layer-coverage-audit` fails it closed to `PARTIAL` otherwise.
+The initial status is deliberately conservative.
 
 ## Runtime artifact policy
 

@@ -21,6 +21,7 @@ from autobot.v2.research.resilience_readiness import (
     ResilienceError,
     RetryPolicy,
     RuntimeDeploymentEvidence,
+    audit_layer_coverage,
     audit_sqlite_backup_scope,
     build_readiness_dossier_from_coverage,
     create_verified_sqlite_backup_bundle,
@@ -36,6 +37,7 @@ from autobot.v2.research.resilience_readiness import (
     summarize_fail_closed_incidents,
     verify_sqlite_backup_bundle_restore_drill,
     verify_sqlite_restore_drill,
+    write_layer_coverage_audit,
     write_readiness_dossier,
 )
 
@@ -555,6 +557,118 @@ def test_versioned_coverage_produces_not_ready_dossier_until_runtime_gates_are_v
     assert "layer_22_unsafe" in dossier.blockers
     assert "deployment_evidence_missing" in dossier.blockers
     assert written.exists()
+
+
+def test_layer_coverage_audit_requires_commit_bound_code_test_and_runtime_evidence(tmp_path):
+    commit = "a" * 40
+    (tmp_path / "src").mkdir()
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "reports").mkdir()
+    (tmp_path / "src" / "component.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (tmp_path / "tests" / "test_component.py").write_text("def test_component(): pass\n", encoding="utf-8")
+    (tmp_path / "reports" / "runtime.md").write_text("healthy\n", encoding="utf-8")
+    coverage = tmp_path / "coverage.json"
+    coverage.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "layers": [
+                    {
+                        "id": 3,
+                        "status": "VERIFIED",
+                        "verification": {
+                            "source_commit": commit,
+                            "code_paths": ["src/component.py"],
+                            "test_paths": ["tests/test_component.py"],
+                            "runtime_evidence_paths": ["reports/runtime.md"],
+                        },
+                    },
+                    {"id": 5, "status": "VERIFIED"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    audit = audit_layer_coverage(coverage, expected_source_commit=commit)
+    written = write_layer_coverage_audit(audit, tmp_path / "coverage-audit.md")
+
+    by_layer = {result.layer_id: result for result in audit.results}
+    assert by_layer[3].effective_status == "VERIFIED"
+    assert by_layer[5].effective_status == "PARTIAL"
+    assert "layer_5_verification_missing" in audit.blockers
+    assert written.is_file()
+    assert "`VERIFIED`" in written.read_text(encoding="utf-8")
+
+
+def test_layer_coverage_audit_rejects_outside_paths_and_unbound_or_mismatched_commits(tmp_path):
+    coverage = tmp_path / "coverage.json"
+    coverage.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "layers": [
+                    {
+                        "id": 3,
+                        "status": "VERIFIED",
+                        "verification": {
+                            "source_commit": "a" * 40,
+                            "code_paths": ["../outside.py"],
+                            "test_paths": ["missing-test.py"],
+                            "runtime_evidence_paths": ["missing-runtime.md"],
+                        },
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    audit = audit_layer_coverage(coverage, expected_source_commit="b" * 40)
+    result = audit.results[0]
+
+    assert result.effective_status == "PARTIAL"
+    assert "source_commit_mismatch" in result.blockers
+    assert "code_paths_outside_repository" in result.blockers
+    assert "test_paths_not_found" in result.blockers
+    assert "runtime_evidence_paths_not_found" in result.blockers
+
+
+def test_layer_coverage_audit_detects_repository_root_in_container_like_layout(tmp_path):
+    commit = "a" * 40
+    (tmp_path / "src" / "autobot").mkdir(parents=True)
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "reports").mkdir()
+    (tmp_path / "docs" / "architecture").mkdir(parents=True)
+    (tmp_path / "src" / "autobot" / "component.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (tmp_path / "tests" / "test_component.py").write_text("def test_component(): pass\n", encoding="utf-8")
+    (tmp_path / "reports" / "runtime.md").write_text("healthy\n", encoding="utf-8")
+    coverage = tmp_path / "docs" / "architecture" / "coverage.json"
+    coverage.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "layers": [
+                    {
+                        "id": 3,
+                        "status": "VERIFIED",
+                        "verification": {
+                            "source_commit": commit,
+                            "code_paths": ["src/autobot/component.py"],
+                            "test_paths": ["tests/test_component.py"],
+                            "runtime_evidence_paths": ["reports/runtime.md"],
+                        },
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    audit = audit_layer_coverage(coverage, expected_source_commit=commit)
+
+    assert Path(audit.repository_root) == tmp_path
+    assert audit.results[0].effective_status == "VERIFIED"
 
 
 def test_readiness_dossier_requires_fresh_aligned_observation_only_deployment_evidence():
