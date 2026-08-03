@@ -249,11 +249,9 @@ class FeatureRegistry:
             for row_index in range(index, group_end):
                 target = normalized[row_index]
                 target_position = event_position_by_row[row_index]
-                end_rank = published.count_through(target_position)
-                start_rank = max(1, end_rank - max_lookback)
                 observed = [
-                    event_rows[published.position_at_rank(rank)]
-                    for rank in range(start_rank, end_rank + 1)
+                    event_rows[position]
+                    for position in published.window_through(target_position, max_lookback + 1)
                 ]
                 for definition in definitions:
                     yield _compute_feature(
@@ -333,11 +331,9 @@ class FeatureRegistry:
                 published.add(event_position_by_row[row_index])
             for row_index in range(index, group_end):
                 target = normalized[row_index]
-                end_rank = published.count_through(event_position_by_row[row_index])
-                start_rank = max(1, end_rank - max_lookback)
                 observed = [
-                    event_rows[published.position_at_rank(rank)]
-                    for rank in range(start_rank, end_rank + 1)
+                    event_rows[position]
+                    for position in published.window_through(event_position_by_row[row_index], max_lookback + 1)
                 ]
                 for definition in definitions:
                     yield _compute_feature(
@@ -570,14 +566,31 @@ class _FenwickIndex:
             raise ValueError("Fenwick index size cannot be negative")
         self._size = size
         self._tree = [0] * (size + 1)
+        self._visible = [False] * size
+        self._previous = [-1] * size
+        self._next = [-1] * size
+        self._count = 0
 
     def add(self, position: int) -> None:
         if position < 0 or position >= self._size:
             raise IndexError("Fenwick index position is outside the event range")
+        if self._visible[position]:
+            raise ValueError("Fenwick event position cannot be published twice")
+        predecessor_rank = self.count_through(position - 1)
+        predecessor = self.position_at_rank(predecessor_rank) if predecessor_rank else -1
+        successor = self.position_at_rank(predecessor_rank + 1) if predecessor_rank < self._count else -1
         cursor = position + 1
         while cursor <= self._size:
             self._tree[cursor] += 1
             cursor += cursor & -cursor
+        self._visible[position] = True
+        self._previous[position] = predecessor
+        self._next[position] = successor
+        if predecessor >= 0:
+            self._next[predecessor] = position
+        if successor >= 0:
+            self._previous[successor] = position
+        self._count += 1
 
     def count_through(self, position: int) -> int:
         """Return visible events whose event-order position is <= ``position``."""
@@ -594,8 +607,7 @@ class _FenwickIndex:
     def position_at_rank(self, rank: int) -> int:
         """Return the zero-based position of a one-based visible-event rank."""
 
-        total = self.count_through(self._size - 1)
-        if rank < 1 or rank > total:
+        if rank < 1 or rank > self._count:
             raise IndexError("Fenwick visible-event rank is outside the published range")
         cursor = 0
         bit = 1 << (self._size.bit_length() - 1) if self._size else 0
@@ -607,6 +619,22 @@ class _FenwickIndex:
                 remaining -= self._tree[candidate]
             bit >>= 1
         return cursor
+
+    def window_through(self, position: int, limit: int) -> list[int]:
+        """Return up to ``limit`` visible positions ending at ``position``."""
+
+        if limit <= 0:
+            return []
+        visible_rank = self.count_through(position)
+        if visible_rank == 0:
+            return []
+        current = self.position_at_rank(visible_rank)
+        reversed_window: list[int] = []
+        while current >= 0 and len(reversed_window) < limit:
+            reversed_window.append(current)
+            current = self._previous[current]
+        reversed_window.reverse()
+        return reversed_window
 
 
 def _merge_sorted_indices(existing: Sequence[int], incoming: Sequence[int]) -> list[int]:
