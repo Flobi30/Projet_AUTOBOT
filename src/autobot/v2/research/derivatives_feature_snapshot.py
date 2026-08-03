@@ -14,11 +14,18 @@ from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 from hashlib import sha256
 import json
+import math
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 import uuid
 
-from autobot.v2.contracts import MarketIdentity, contract_to_dict
+from autobot.v2.contracts import (
+    FeatureSnapshotReference,
+    FeatureValue,
+    MarketIdentity,
+    VerifiedFeatureVector,
+    contract_to_dict,
+)
 
 from .derivatives_basis_contract import (
     accepted_basis_confidence_statuses,
@@ -188,6 +195,129 @@ def inspect_derivatives_feature_snapshot_manifest(
         paper_capital_allowed=False,
         live_allowed=False,
         promotable=False,
+    )
+
+
+def load_verified_feature_vector_from_derivatives_snapshot(
+    path: str | Path,
+    *,
+    futures_symbol: str,
+    timeframe: str,
+    event_time: datetime,
+    observed_at: datetime,
+    feature_ids: Sequence[str] | None = None,
+) -> VerifiedFeatureVector:
+    """Load one immutable forward-captured derivatives vector for research/shadow.
+
+    This reader deliberately accepts only a fully ready, material-verified,
+    forward-capture-only bundle.  Historical backfills can remain valid for
+    research experiments, but cannot silently become shadow evidence merely
+    because their snapshot status is ``READY``.  The returned market keeps the
+    perpetual market and its quote currency intact; it never creates or
+    implies a USD/EUR conversion or an executable intent.
+    """
+
+    manifest_path = Path(path)
+    availability = inspect_derivatives_feature_snapshot_manifest(manifest_path)
+    if availability.status != "READY":
+        raise DerivativesFeatureSnapshotManifestError(
+            f"derivatives feature snapshot is not ready: {availability.status}"
+        )
+    if availability.provenance_scope != FORWARD_CAPTURE_ONLY_PROVENANCE_SCOPE:
+        raise DerivativesFeatureSnapshotManifestError(
+            "derivatives feature vector requires forward_capture_only provenance"
+        )
+    if not availability.runtime_parity_proven or not availability.material_verified or not availability.parity_ok:
+        raise DerivativesFeatureSnapshotManifestError(
+            "derivatives feature vector requires material-verified runtime parity"
+        )
+    if availability.bundle_content_fingerprint is None:
+        raise DerivativesFeatureSnapshotManifestError(
+            "derivatives feature vector requires bundle content fingerprint"
+        )
+
+    payload = _load_snapshot_manifest(manifest_path)
+    target_symbol = _required_text(futures_symbol, "derivatives futures_symbol").upper()
+    target_timeframe = _required_text(timeframe, "derivatives feature timeframe")
+    target_event_time = _utc(event_time)
+    target_observed_at = _utc(observed_at)
+    if target_event_time > target_observed_at:
+        raise DerivativesFeatureSnapshotManifestError(
+            "derivatives feature event_time cannot be after observed_at"
+        )
+    requested_feature_ids = _normalized_requested_feature_ids(feature_ids)
+    mappings = _snapshot_market_mappings(payload)
+    expected_mapping = mappings.get(target_symbol)
+    if expected_mapping is None:
+        raise DerivativesFeatureSnapshotManifestError("derivatives futures_symbol is absent from explicit market mappings")
+
+    matching_files: list[tuple[Mapping[str, Any], list[dict[str, str]]]] = []
+    raw_files = payload.get("files")
+    if not isinstance(raw_files, list):
+        raise DerivativesFeatureSnapshotManifestError("derivatives snapshot files are required")
+    for raw_file in raw_files:
+        if not isinstance(raw_file, Mapping):
+            raise DerivativesFeatureSnapshotManifestError("derivatives snapshot file evidence is invalid")
+        if str(raw_file.get("futures_symbol") or "").upper() != target_symbol:
+            continue
+        rows = _read_feature_csv(_resolve_feature_csv_path(manifest_path, raw_file.get("csv_path")))
+        selected = [
+            dict(row)
+            for row in rows
+            if str(row.get("symbol") or "").upper() == target_symbol
+            and str(row.get("timeframe") or "") == target_timeframe
+            and _row_time(row, "event_time") == target_event_time
+        ]
+        if requested_feature_ids is not None:
+            selected = [row for row in selected if str(row.get("feature_id") or "") in requested_feature_ids]
+        if selected:
+            matching_files.append((raw_file, selected))
+    if len(matching_files) != 1:
+        raise DerivativesFeatureSnapshotManifestError(
+            "derivatives feature vector market/timeframe/event is ambiguous or missing"
+        )
+    raw_file, selected_rows = matching_files[0]
+    selected_ids = {str(row.get("feature_id") or "") for row in selected_rows}
+    if not selected_ids or "" in selected_ids or len(selected_ids) != len(selected_rows):
+        raise DerivativesFeatureSnapshotManifestError("derivatives feature vector requires unique feature ids")
+    if requested_feature_ids is not None and selected_ids != requested_feature_ids:
+        raise DerivativesFeatureSnapshotManifestError("derivatives feature vector does not contain every requested feature id")
+    expected_versions = {
+        feature_id: str((payload.get("feature_versions") or {}).get(feature_id) or "").strip()
+        for feature_id in selected_ids
+    }
+    if not all(expected_versions.values()):
+        raise DerivativesFeatureSnapshotManifestError("derivatives feature vector versions are incomplete")
+    market = _derivatives_vector_market(
+        rows=selected_rows,
+        expected_mapping=expected_mapping,
+        futures_symbol=target_symbol,
+    )
+    values = tuple(
+        _derivatives_feature_value_from_csv_row(
+            row,
+            market=market,
+            timeframe=target_timeframe,
+            expected_versions=expected_versions,
+            source_snapshot_id=str(payload.get("source_snapshot_id") or ""),
+            observed_at=target_observed_at,
+        )
+        for row in sorted(selected_rows, key=lambda item: str(item.get("feature_id") or ""))
+    )
+    snapshot = _derivatives_vector_snapshot_reference(
+        payload=payload,
+        raw_file=raw_file,
+        market=market,
+        timeframe=target_timeframe,
+        feature_versions=expected_versions,
+        bundle_content_fingerprint=availability.bundle_content_fingerprint,
+    )
+    return VerifiedFeatureVector(
+        feature_snapshot=snapshot,
+        market=market,
+        timeframe=target_timeframe,
+        observed_at=target_observed_at,
+        values=values,
     )
 
 
@@ -541,6 +671,194 @@ def write_derivatives_feature_snapshot_report(snapshot: DerivativesFeatureSnapsh
     _write_json_atomic(json_path, snapshot.to_dict())
     markdown_path.write_text(render_derivatives_feature_snapshot_report(snapshot), encoding="utf-8")
     return json_path, markdown_path
+
+
+def _load_snapshot_manifest(path: Path) -> Mapping[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise DerivativesFeatureSnapshotManifestError(
+            f"invalid derivatives feature snapshot manifest: {path}"
+        ) from exc
+    if not isinstance(payload, Mapping):
+        raise DerivativesFeatureSnapshotManifestError("derivatives feature snapshot manifest must be an object")
+    if str(payload.get("snapshot_kind") or "") != DERIVATIVES_POINT_IN_TIME_KIND:
+        raise DerivativesFeatureSnapshotManifestError(
+            "derivatives snapshot manifest must be DERIVATIVES_POINT_IN_TIME"
+        )
+    return payload
+
+
+def _normalized_requested_feature_ids(feature_ids: Sequence[str] | None) -> set[str] | None:
+    if feature_ids is None:
+        return None
+    normalized = {str(item).strip() for item in feature_ids if str(item).strip()}
+    if not normalized:
+        raise DerivativesFeatureSnapshotManifestError("derivatives feature_ids must be non-empty when supplied")
+    unknown = normalized - set(FEATURE_DATASET_BY_ID)
+    if unknown:
+        raise DerivativesFeatureSnapshotManifestError(
+            f"unsupported derivatives feature ids: {', '.join(sorted(unknown))}"
+        )
+    return normalized
+
+
+def _snapshot_market_mappings(payload: Mapping[str, Any]) -> dict[str, dict[str, str]]:
+    raw_mappings = payload.get("market_mappings")
+    if not isinstance(raw_mappings, list) or not raw_mappings:
+        raise DerivativesFeatureSnapshotManifestError("derivatives snapshot market_mappings are required")
+    mappings: dict[str, dict[str, str]] = {}
+    for raw_mapping in raw_mappings:
+        if not isinstance(raw_mapping, Mapping):
+            raise DerivativesFeatureSnapshotManifestError("derivatives snapshot market mapping is invalid")
+        futures_symbol = _required_text(raw_mapping.get("futures_symbol"), "derivatives mapping futures_symbol").upper()
+        mapping = {
+            "futures_symbol": futures_symbol,
+            "base_asset": _required_text(raw_mapping.get("base_asset"), "derivatives mapping base_asset").upper(),
+            "quote_asset": _required_text(raw_mapping.get("quote_asset"), "derivatives mapping quote_asset").upper(),
+            "autobot_spot_symbol": str(raw_mapping.get("autobot_spot_symbol") or "").strip().upper(),
+        }
+        if futures_symbol in mappings:
+            raise DerivativesFeatureSnapshotManifestError("derivatives snapshot market mapping is ambiguous")
+        mappings[futures_symbol] = mapping
+    return mappings
+
+
+def _derivatives_vector_market(
+    *,
+    rows: Sequence[Mapping[str, Any]],
+    expected_mapping: Mapping[str, str],
+    futures_symbol: str,
+) -> MarketIdentity:
+    if not rows:
+        raise DerivativesFeatureSnapshotManifestError("derivatives feature vector rows are required")
+    exchanges = {str(row.get("exchange") or "").strip().lower() for row in rows}
+    market_types = {str(row.get("market_type") or "").strip().lower() for row in rows}
+    symbols = {str(row.get("symbol") or "").strip().upper() for row in rows}
+    bases = {str(row.get("base_asset") or "").strip().upper() for row in rows}
+    quotes = {str(row.get("quote_asset") or "").strip().upper() for row in rows}
+    if len(exchanges) != 1 or not next(iter(exchanges)):
+        raise DerivativesFeatureSnapshotManifestError("derivatives feature vector exchange identity is invalid")
+    if market_types != {"perpetual"}:
+        raise DerivativesFeatureSnapshotManifestError("derivatives feature vector must retain perpetual market identity")
+    if symbols != {futures_symbol}:
+        raise DerivativesFeatureSnapshotManifestError("derivatives feature vector symbol does not match requested futures_symbol")
+    if bases != {str(expected_mapping["base_asset"]).upper()} or quotes != {
+        str(expected_mapping["quote_asset"]).upper()
+    }:
+        raise DerivativesFeatureSnapshotManifestError("derivatives feature vector market mapping does not match manifest")
+    return MarketIdentity(
+        exchange=next(iter(exchanges)),
+        market_type="perpetual",
+        symbol=futures_symbol,
+        base_asset=next(iter(bases)),
+        quote_asset=next(iter(quotes)),
+    )
+
+
+def _derivatives_feature_value_from_csv_row(
+    row: Mapping[str, Any],
+    *,
+    market: MarketIdentity,
+    timeframe: str,
+    expected_versions: Mapping[str, str],
+    source_snapshot_id: str,
+    observed_at: datetime,
+) -> FeatureValue:
+    feature_id = _required_text(row.get("feature_id"), "derivatives feature_id")
+    feature_version = _required_text(row.get("feature_version"), "derivatives feature_version")
+    if expected_versions.get(feature_id) != feature_version:
+        raise DerivativesFeatureSnapshotManifestError("derivatives feature version does not match snapshot manifest")
+    if _required_text(row.get("source_snapshot_id"), "derivatives feature source_snapshot_id") != source_snapshot_id:
+        raise DerivativesFeatureSnapshotManifestError("derivatives feature source snapshot does not match manifest")
+    event_time = _row_time(row, "event_time")
+    available_time = _row_time(row, "available_time")
+    if event_time is None or available_time is None:
+        raise DerivativesFeatureSnapshotManifestError("derivatives feature timestamps are invalid")
+    if available_time > observed_at:
+        raise DerivativesFeatureSnapshotManifestError("derivatives feature is not available at observed_at")
+    if str(row.get("status") or "").upper() != "READY":
+        raise DerivativesFeatureSnapshotManifestError("derivatives feature vector requires READY values")
+    try:
+        value = float(row.get("value"))
+    except (TypeError, ValueError) as exc:
+        raise DerivativesFeatureSnapshotManifestError("derivatives feature value must be numeric") from exc
+    if not math.isfinite(value):
+        raise DerivativesFeatureSnapshotManifestError("derivatives feature value must be finite")
+    raw_metadata = row.get("metadata_json") or "{}"
+    try:
+        metadata = json.loads(str(raw_metadata))
+    except json.JSONDecodeError as exc:
+        raise DerivativesFeatureSnapshotManifestError("derivatives feature metadata_json is invalid") from exc
+    if not isinstance(metadata, Mapping):
+        raise DerivativesFeatureSnapshotManifestError("derivatives feature metadata_json must be an object")
+    return FeatureValue(
+        feature_id=feature_id,
+        feature_version=feature_version,
+        market=market,
+        timeframe=timeframe,
+        event_time=event_time,
+        available_time=available_time,
+        source_snapshot_id=source_snapshot_id,
+        value=value,
+        status="ready",
+        metadata=dict(metadata),
+    )
+
+
+def _derivatives_vector_snapshot_reference(
+    *,
+    payload: Mapping[str, Any],
+    raw_file: Mapping[str, Any],
+    market: MarketIdentity,
+    timeframe: str,
+    feature_versions: Mapping[str, str],
+    bundle_content_fingerprint: str,
+) -> FeatureSnapshotReference:
+    identity = {
+        "parent_feature_snapshot_id": _required_text(
+            payload.get("feature_snapshot_id"), "derivatives feature snapshot id"
+        ),
+        "parent_feature_snapshot_fingerprint": _required_text(
+            payload.get("fingerprint"), "derivatives feature snapshot fingerprint"
+        ),
+        "source_dataset": _required_text(raw_file.get("source_dataset"), "derivatives feature source_dataset"),
+        "file_content_sha256": _required_text(raw_file.get("content_sha256"), "derivatives feature file content hash"),
+        "market": contract_to_dict(market),
+        "timeframe": timeframe,
+        "feature_versions": dict(sorted(feature_versions.items())),
+    }
+    vector_fingerprint = _fingerprint(identity)
+    vector_bundle_fingerprint = _fingerprint(
+        {
+            "parent_bundle_content_fingerprint": bundle_content_fingerprint,
+            "vector_identity": identity,
+        }
+    )
+    return FeatureSnapshotReference(
+        feature_snapshot_id=f"{identity['parent_feature_snapshot_id']}_{vector_fingerprint[:20]}",
+        fingerprint=vector_fingerprint,
+        snapshot_kind=DERIVATIVES_POINT_IN_TIME_KIND,
+        source_snapshot_id=_required_text(payload.get("source_snapshot_id"), "derivatives source snapshot id"),
+        source_snapshot_fingerprint=_required_text(
+            payload.get("source_snapshot_fingerprint"), "derivatives source snapshot fingerprint"
+        ),
+        feature_registry_fingerprint=_required_text(
+            payload.get("feature_registry_fingerprint"), "derivatives feature registry fingerprint"
+        ),
+        feature_versions=dict(feature_versions),
+        runtime_parity_proven=True,
+        material_verified=True,
+        bundle_content_fingerprint=vector_bundle_fingerprint,
+        ingestion_time_unknown_count=0,
+    )
+
+
+def _required_text(value: Any, field_name: str) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        raise DerivativesFeatureSnapshotManifestError(f"{field_name} is required")
+    return normalized
 
 
 def _load_derivatives_manifest(path: Path) -> Mapping[str, Any]:

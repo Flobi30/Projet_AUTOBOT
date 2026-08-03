@@ -14,6 +14,7 @@ from autobot.v2.research.derivatives_feature_snapshot import (
     build_derivatives_feature_snapshot,
     _runtime_parity_proven,
     inspect_derivatives_feature_snapshot_manifest,
+    load_verified_feature_vector_from_derivatives_snapshot,
 )
 from autobot.v2.research.manifested_experiment import build_manifested_experiment_spec
 
@@ -386,6 +387,112 @@ def test_fully_forward_scope_can_materialize_a_runtime_parity_ready_bundle(tmp_p
     assert snapshot.runtime_parity_proven is True
     assert "DERIVATIVES_RUNTIME_PARITY_NOT_PROVEN" not in snapshot.blockers
     assert "FORWARD_CAPTURE_WINDOW_WAITING" not in snapshot.blockers
+
+
+def test_verified_derivatives_vector_requires_forward_material_and_keeps_perpetual_usd_identity(tmp_path):
+    manifest = _derivatives_manifest(tmp_path, basis_ready=True, oi_ready=True)
+    _set_temporal_status(tmp_path / "funding.csv", "AVAILABLE_AFTER_FORWARD_CAPTURE")
+    snapshot = build_derivatives_feature_snapshot(
+        DerivativesFeatureSnapshotConfig(
+            run_id="derivatives_verified_vector",
+            derivatives_manifest_path=manifest,
+            as_of_time=AS_OF,
+            output_dir=tmp_path / "output",
+            manifest_dir=tmp_path / "manifests",
+            provenance_scope="forward_capture_only",
+        )
+    )
+
+    vector = load_verified_feature_vector_from_derivatives_snapshot(
+        snapshot.manifest_path,
+        futures_symbol="PF_XBTUSD",
+        timeframe="funding_interval",
+        event_time=datetime(2026, 7, 10, tzinfo=timezone.utc),
+        observed_at=AS_OF,
+        feature_ids=("funding_rate_relative",),
+    )
+
+    assert vector.market.exchange == "kraken_futures"
+    assert vector.market.market_type == "perpetual"
+    assert vector.market.symbol == "PF_XBTUSD"
+    assert vector.market.base_asset == "BTC"
+    assert vector.market.quote_asset == "USD"
+    assert vector.feature_snapshot.snapshot_kind == "DERIVATIVES_POINT_IN_TIME"
+    assert vector.feature_snapshot.material_verified is True
+    assert set(vector.feature_snapshot.feature_versions) == {"funding_rate_relative"}
+    assert [item.feature_id for item in vector.values] == ["funding_rate_relative"]
+    assert vector.values[0].available_time <= AS_OF
+
+
+def test_verified_derivatives_vector_rejects_backfilled_or_unavailable_evidence(tmp_path):
+    manifest = _derivatives_manifest(tmp_path, basis_ready=True, oi_ready=True)
+    historical_snapshot = build_derivatives_feature_snapshot(
+        DerivativesFeatureSnapshotConfig(
+            run_id="derivatives_historical_vector",
+            derivatives_manifest_path=manifest,
+            as_of_time=AS_OF,
+            output_dir=tmp_path / "historical_output",
+            manifest_dir=tmp_path / "historical_manifests",
+        )
+    )
+    with pytest.raises(DerivativesFeatureSnapshotManifestError, match="forward_capture_only"):
+        load_verified_feature_vector_from_derivatives_snapshot(
+            historical_snapshot.manifest_path,
+            futures_symbol="PF_XBTUSD",
+            timeframe="funding_interval",
+            event_time=datetime(2026, 7, 10, tzinfo=timezone.utc),
+            observed_at=AS_OF,
+            feature_ids=("funding_rate_relative",),
+        )
+
+    _set_temporal_status(tmp_path / "funding.csv", "AVAILABLE_AFTER_FORWARD_CAPTURE")
+    forward_snapshot = build_derivatives_feature_snapshot(
+        DerivativesFeatureSnapshotConfig(
+            run_id="derivatives_unavailable_vector",
+            derivatives_manifest_path=manifest,
+            as_of_time=AS_OF,
+            output_dir=tmp_path / "forward_output",
+            manifest_dir=tmp_path / "forward_manifests",
+            provenance_scope="forward_capture_only",
+        )
+    )
+    with pytest.raises(DerivativesFeatureSnapshotManifestError, match="not available"):
+        load_verified_feature_vector_from_derivatives_snapshot(
+            forward_snapshot.manifest_path,
+            futures_symbol="PF_XBTUSD",
+            timeframe="funding_interval",
+            event_time=datetime(2026, 7, 10, tzinfo=timezone.utc),
+            observed_at=datetime(2026, 7, 10, tzinfo=timezone.utc),
+            feature_ids=("funding_rate_relative",),
+        )
+
+
+def test_verified_derivatives_vector_rejects_market_mapping_that_conflicts_with_feature_rows(tmp_path):
+    manifest = _derivatives_manifest(tmp_path, basis_ready=True, oi_ready=True)
+    _set_temporal_status(tmp_path / "funding.csv", "AVAILABLE_AFTER_FORWARD_CAPTURE")
+    snapshot = build_derivatives_feature_snapshot(
+        DerivativesFeatureSnapshotConfig(
+            run_id="derivatives_mapping_vector",
+            derivatives_manifest_path=manifest,
+            as_of_time=AS_OF,
+            output_dir=tmp_path / "output",
+            manifest_dir=tmp_path / "manifests",
+            provenance_scope="forward_capture_only",
+        )
+    )
+    payload = json.loads(Path(str(snapshot.manifest_path)).read_text(encoding="utf-8"))
+    payload["market_mappings"][0]["quote_asset"] = "EUR"
+    Path(str(snapshot.manifest_path)).write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(DerivativesFeatureSnapshotManifestError, match="market mapping does not match"):
+        load_verified_feature_vector_from_derivatives_snapshot(
+            snapshot.manifest_path,
+            futures_symbol="PF_XBTUSD",
+            timeframe="funding_interval",
+            event_time=datetime(2026, 7, 10, tzinfo=timezone.utc),
+            observed_at=AS_OF,
+            feature_ids=("funding_rate_relative",),
+        )
 
 
 def test_derivatives_snapshot_rejects_unknown_provenance_scope(tmp_path):
