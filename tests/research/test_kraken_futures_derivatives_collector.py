@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import csv
+import urllib.error
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import os
@@ -22,6 +23,7 @@ from autobot.v2.research.kraken_futures_derivatives_collector import (
     INSTRUMENTS_ENDPOINT,
     TICKERS_ENDPOINT,
     KrakenFuturesCollectorConfig,
+    KrakenFuturesPublicClient,
     _basis_rows_from_aligned_candles,
     _compact_canonical_history,
     _dedupe_rows,
@@ -166,6 +168,67 @@ def test_forbidden_order_endpoints_are_rejected():
         assert_public_kraken_futures_endpoint("/derivatives/api/v3/cancelorder")
 
 
+def test_public_client_retries_transient_timeout_with_a_bounded_backoff(monkeypatch):
+    calls: list[tuple[str, float]] = []
+
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, _exc_type, _exc_value, _traceback):
+            return False
+
+        def read(self):
+            return b'{"result": "success", "tickers": []}'
+
+    def _urlopen(url: str, *, timeout: float):
+        calls.append((url, timeout))
+        if len(calls) == 1:
+            raise urllib.error.URLError("temporary timeout")
+        return _Response()
+
+    monkeypatch.setattr(
+        "autobot.v2.research.kraken_futures_derivatives_collector.urllib.request.urlopen",
+        _urlopen,
+    )
+    client = KrakenFuturesPublicClient(timeout_seconds=3.0, retry_attempts=2, retry_backoff_seconds=0.0)
+
+    payload = client.get_json(TICKERS_ENDPOINT)
+
+    assert payload["result"] == "success"
+    assert len(calls) == 2
+    assert all(timeout == 3.0 for _url, timeout in calls)
+
+
+def test_public_client_does_not_retry_non_transient_http_failure(monkeypatch):
+    calls = 0
+
+    def _urlopen(_url: str, *, timeout: float):
+        nonlocal calls
+        calls += 1
+        raise urllib.error.HTTPError("https://futures.kraken.com", 400, "bad request", None, None)
+
+    monkeypatch.setattr(
+        "autobot.v2.research.kraken_futures_derivatives_collector.urllib.request.urlopen",
+        _urlopen,
+    )
+    client = KrakenFuturesPublicClient(timeout_seconds=3.0, retry_attempts=2, retry_backoff_seconds=0.0)
+
+    with pytest.raises(urllib.error.HTTPError):
+        client.get_json(TICKERS_ENDPOINT)
+
+    assert calls == 1
+
+
+def test_collector_retry_configuration_is_bounded():
+    with pytest.raises(ValueError, match="retry_attempts"):
+        KrakenFuturesCollectorConfig(run_id="invalid_retries", retry_attempts=6)
+    with pytest.raises(ValueError, match="retry_backoff_seconds"):
+        KrakenFuturesCollectorConfig(run_id="invalid_backoff", retry_backoff_seconds=10.1)
+    with pytest.raises(ValueError, match="retry_attempts"):
+        KrakenFuturesPublicClient(retry_attempts=-1)
+
+
 def test_derivatives_fingerprint_is_idempotent():
     rows = {
         "funding_rates": [
@@ -272,6 +335,8 @@ def test_collect_kraken_futures_derivatives_cli_is_registered():
     assert args.future_basis_max_pages_per_symbol == 2
     assert args.forward_capture_max_lag_seconds == 900
     assert args.raw_retention_days == 7
+    assert args.retry_attempts == 2
+    assert args.retry_backoff_seconds == 1.0
     assert args.report_dir == "data/research/reports/kraken_futures_derivatives"
 
 

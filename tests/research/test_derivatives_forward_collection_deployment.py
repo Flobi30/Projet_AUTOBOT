@@ -24,6 +24,8 @@ def test_derivatives_timer_is_bounded_public_research_only():
     assert "--skip-funding" in script
     assert "--skip-candles" in script
     assert "--raw-retention-days 7" in script
+    assert "--retry-attempts 2" in script
+    assert "--retry-backoff-seconds 1" in script
     assert "AUTOBOT_DERIVATIVES_COLLECTION_MODE" in script
     assert "funding_refresh" in script
     assert "open_interest_refresh" in script

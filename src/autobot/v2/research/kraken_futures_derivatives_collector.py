@@ -13,6 +13,7 @@ import json
 import math
 import shutil
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
@@ -111,6 +112,11 @@ class KrakenFuturesCollectorConfig:
     forward_capture_max_lag_seconds: int | None = None
     sleep_seconds: float = 0.0
     timeout_seconds: float = 20.0
+    # Extra public HTTP attempts after the initial request.  This is bounded
+    # deliberately: transient exchange/network failures may recover, but a
+    # collector must not spin indefinitely or hide a persistent outage.
+    retry_attempts: int = 2
+    retry_backoff_seconds: float = 1.0
     continue_on_error: bool = False
     observed_at: datetime | None = None
     raw_retention_days: int | None = None
@@ -134,6 +140,10 @@ class KrakenFuturesCollectorConfig:
             raise ValueError("sleep_seconds cannot be negative")
         if self.timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be positive")
+        if self.retry_attempts < 0 or self.retry_attempts > 5:
+            raise ValueError("retry_attempts must be between 0 and 5")
+        if self.retry_backoff_seconds < 0.0 or self.retry_backoff_seconds > 10.0:
+            raise ValueError("retry_backoff_seconds must be between 0 and 10")
         if self.raw_retention_days is not None and self.raw_retention_days < 0:
             raise ValueError("raw_retention_days must be non-negative when provided")
         if self.observed_at is not None and (self.observed_at.tzinfo is None or self.observed_at.utcoffset() is None):
@@ -338,19 +348,41 @@ class KrakenFuturesClient(Protocol):
 class KrakenFuturesPublicClient:
     """Tiny public Kraken Futures HTTP client with endpoint guardrails."""
 
-    def __init__(self, *, base_url: str = KRAKEN_FUTURES_BASE_URL, timeout_seconds: float = 20.0) -> None:
+    def __init__(
+        self,
+        *,
+        base_url: str = KRAKEN_FUTURES_BASE_URL,
+        timeout_seconds: float = 20.0,
+        retry_attempts: int = 2,
+        retry_backoff_seconds: float = 1.0,
+    ) -> None:
+        if timeout_seconds <= 0.0:
+            raise ValueError("timeout_seconds must be positive")
+        if retry_attempts < 0 or retry_attempts > 5:
+            raise ValueError("retry_attempts must be between 0 and 5")
+        if retry_backoff_seconds < 0.0 or retry_backoff_seconds > 10.0:
+            raise ValueError("retry_backoff_seconds must be between 0 and 10")
         self.base_url = base_url.rstrip("/")
         self.timeout_seconds = timeout_seconds
+        self.retry_attempts = retry_attempts
+        self.retry_backoff_seconds = retry_backoff_seconds
 
     def get_json(self, endpoint: str, params: Mapping[str, Any] | None = None) -> Mapping[str, Any]:
         assert_public_kraken_futures_endpoint(endpoint)
         query = f"?{urllib.parse.urlencode(dict(params or {}))}" if params else ""
         url = f"{self.base_url}{endpoint}{query}"
-        with urllib.request.urlopen(url, timeout=self.timeout_seconds) as response:  # nosec B310 - fixed public HTTPS API.
-            payload = json.loads(response.read().decode("utf-8"))
-        if not isinstance(payload, Mapping):
-            raise ValueError(f"unexpected Kraken Futures response for {endpoint}")
-        return payload
+        for attempt in range(self.retry_attempts + 1):
+            try:
+                with urllib.request.urlopen(url, timeout=self.timeout_seconds) as response:  # nosec B310 - fixed public HTTPS API.
+                    payload = json.loads(response.read().decode("utf-8"))
+                if not isinstance(payload, Mapping):
+                    raise ValueError(f"unexpected Kraken Futures response for {endpoint}")
+                return payload
+            except (urllib.error.URLError, TimeoutError) as exc:
+                if not _retryable_public_fetch_error(exc) or attempt >= self.retry_attempts:
+                    raise
+                _sleep(self.retry_backoff_seconds * (2**attempt))
+        raise AssertionError("bounded public fetch retry loop exited unexpectedly")
 
 
 def assert_public_kraken_futures_endpoint(endpoint: str) -> None:
@@ -367,6 +399,19 @@ def assert_public_kraken_futures_endpoint(endpoint: str) -> None:
         raise ValueError(f"endpoint is not on the P18J public allow-list: {endpoint}")
 
 
+def _retryable_public_fetch_error(error: BaseException) -> bool:
+    """Return whether a public request failure can be retried safely.
+
+    Only transient transport failures and exchange throttling/server failures
+    are retried.  Bad client requests and malformed payloads fail immediately
+    so a configuration defect cannot consume the scheduled job's full budget.
+    """
+
+    if isinstance(error, urllib.error.HTTPError):
+        return error.code in {408, 425, 429, 500, 502, 503, 504}
+    return isinstance(error, (urllib.error.URLError, TimeoutError))
+
+
 def collect_kraken_futures_derivatives(
     config: KrakenFuturesCollectorConfig,
     *,
@@ -375,7 +420,11 @@ def collect_kraken_futures_derivatives(
     """Collect a bounded Kraken Futures derivatives research snapshot."""
 
     assert_public_collector_boundary(("kraken_futures_derivatives_collector",))
-    api = client or KrakenFuturesPublicClient(timeout_seconds=config.timeout_seconds)
+    api = client or KrakenFuturesPublicClient(
+        timeout_seconds=config.timeout_seconds,
+        retry_attempts=config.retry_attempts,
+        retry_backoff_seconds=config.retry_backoff_seconds,
+    )
     collection_time = _collection_time(config)
     raw_run_dir = config.raw_dir / config.run_id
     raw_run_dir.mkdir(parents=True, exist_ok=True)

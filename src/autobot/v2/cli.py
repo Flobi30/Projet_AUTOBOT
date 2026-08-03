@@ -1032,6 +1032,18 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     futures_derivatives.add_argument("--sleep-seconds", type=float, default=0.0)
     futures_derivatives.add_argument("--timeout-seconds", type=float, default=20.0)
+    futures_derivatives.add_argument(
+        "--retry-attempts",
+        type=int,
+        default=2,
+        help="Bounded extra attempts for transient public Kraken Futures failures (default: 2)",
+    )
+    futures_derivatives.add_argument(
+        "--retry-backoff-seconds",
+        type=float,
+        default=1.0,
+        help="Initial bounded exponential public-fetch retry delay in seconds (default: 1)",
+    )
     futures_derivatives.add_argument("--skip-funding", action="store_true")
     futures_derivatives.add_argument("--skip-tickers", action="store_true")
     futures_derivatives.add_argument("--skip-candles", action="store_true")
@@ -3909,6 +3921,8 @@ def _cmd_collect_kraken_futures_derivatives(args: argparse.Namespace) -> int:
             forward_capture_max_lag_seconds=args.forward_capture_max_lag_seconds,
             sleep_seconds=args.sleep_seconds,
             timeout_seconds=args.timeout_seconds,
+            retry_attempts=args.retry_attempts,
+            retry_backoff_seconds=args.retry_backoff_seconds,
             continue_on_error=args.continue_on_error,
             raw_retention_days=args.raw_retention_days,
         )

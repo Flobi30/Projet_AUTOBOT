@@ -109,4 +109,6 @@ exec docker run --rm \
     --manifest-dir /app/data/research/manifests \
     --report-dir /app/data/research/reports/kraken_futures_derivatives \
     --raw-retention-days 7 \
-    --timeout-seconds 20
+    --timeout-seconds 20 \
+    --retry-attempts 2 \
+    --retry-backoff-seconds 1
