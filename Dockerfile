@@ -15,13 +15,6 @@ RUN npm run build
 # ==================== STAGE 2: Backend Python ====================
 FROM python:3.11-slim
 
-# Research artifacts must identify the exact source revision baked into the
-# image.  The deployment helper supplies this value from a clean Git checkout;
-# isolated research jobs reject an image whose label does not match their
-# declared source commit.
-ARG AUTOBOT_BUILD_COMMIT=unverified
-LABEL org.opencontainers.image.revision=${AUTOBOT_BUILD_COMMIT}
-
 # Dépendances système
 RUN apt-get update && apt-get install -y \
     gcc \
@@ -37,6 +30,13 @@ WORKDIR /app
 # Copie des requirements et installation
 COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
+
+# Research artifacts must identify the exact source revision baked into the
+# image. Keep this provenance boundary after the expensive dependency layers:
+# changing only the code commit must not invalidate the apt/pip cache on the
+# disk-constrained VPS, while the source copied below still gets a fresh label.
+ARG AUTOBOT_BUILD_COMMIT=unverified
+LABEL org.opencontainers.image.revision=${AUTOBOT_BUILD_COMMIT}
 
 # Copie du code backend
 COPY src/ /app/src/
