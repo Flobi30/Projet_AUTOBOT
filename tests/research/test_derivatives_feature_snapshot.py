@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from autobot.v2.cli import _build_parser
+from autobot.v2.contracts import FeatureSnapshotReference, FeatureValue, MarketIdentity, VerifiedFeatureVector
 from autobot.v2.research.derivatives_feature_snapshot import (
     DerivativesFeatureSnapshotManifestError,
     DerivativesFeatureSnapshotConfig,
@@ -15,6 +16,10 @@ from autobot.v2.research.derivatives_feature_snapshot import (
     _runtime_parity_proven,
     inspect_derivatives_feature_snapshot_manifest,
     load_verified_feature_vector_from_derivatives_snapshot,
+)
+from autobot.v2.research.derivatives_spot_context import (
+    DerivativesSpotResearchContextError,
+    build_derivatives_spot_research_context_from_snapshot,
 )
 from autobot.v2.research.manifested_experiment import build_manifested_experiment_spec
 
@@ -492,6 +497,81 @@ def test_verified_derivatives_vector_rejects_market_mapping_that_conflicts_with_
             event_time=datetime(2026, 7, 10, tzinfo=timezone.utc),
             observed_at=AS_OF,
             feature_ids=("funding_rate_relative",),
+        )
+
+
+def test_derivatives_spot_context_reuses_verified_manifest_mapping_and_rejects_tampering(tmp_path):
+    manifest = _derivatives_manifest(tmp_path, basis_ready=True, oi_ready=True)
+    _set_temporal_status(tmp_path / "funding.csv", "AVAILABLE_AFTER_FORWARD_CAPTURE")
+    snapshot = build_derivatives_feature_snapshot(
+        DerivativesFeatureSnapshotConfig(
+            run_id="derivatives_context_mapping",
+            derivatives_manifest_path=manifest,
+            as_of_time=AS_OF,
+            output_dir=tmp_path / "output",
+            manifest_dir=tmp_path / "manifests",
+            provenance_scope="forward_capture_only",
+        )
+    )
+    derivatives_vector = load_verified_feature_vector_from_derivatives_snapshot(
+        snapshot.manifest_path,
+        futures_symbol="PF_XBTUSD",
+        timeframe="funding_interval",
+        event_time=datetime(2026, 7, 10, tzinfo=timezone.utc),
+        observed_at=AS_OF,
+        feature_ids=("funding_rate_relative",),
+    )
+    spot_market = MarketIdentity("kraken", "spot", "BTCZEUR", "BTC", "EUR")
+    spot_snapshot = FeatureSnapshotReference(
+        feature_snapshot_id="spot_context_fixture",
+        fingerprint="spot-context-fingerprint",
+        snapshot_kind="CANONICAL_FEATURE_SNAPSHOT",
+        source_snapshot_id="spot-context-source",
+        source_snapshot_fingerprint="spot-context-source-fingerprint",
+        feature_registry_fingerprint="spot-context-registry-fingerprint",
+        feature_versions={"momentum_3_bps": "1.0.0"},
+        runtime_parity_proven=True,
+        material_verified=True,
+        bundle_content_fingerprint="spot-context-bundle-fingerprint",
+    )
+    spot_vector = VerifiedFeatureVector(
+        feature_snapshot=spot_snapshot,
+        market=spot_market,
+        timeframe="1h",
+        observed_at=AS_OF,
+        values=(
+            FeatureValue(
+                feature_id="momentum_3_bps",
+                feature_version="1.0.0",
+                market=spot_market,
+                timeframe="1h",
+                event_time=AS_OF - timedelta(hours=1),
+                available_time=AS_OF,
+                source_snapshot_id="spot-context-source",
+                value=1.5,
+            ),
+        ),
+    )
+
+    context = build_derivatives_spot_research_context_from_snapshot(
+        derivatives_snapshot_manifest=snapshot.manifest_path,
+        spot_vector=spot_vector,
+        derivatives_vector=derivatives_vector,
+    )
+
+    assert context.mapping.mapping_fingerprint == snapshot.market_mapping_fingerprint
+    assert context.mapping.spot_market == spot_market
+    assert context.mapping.futures_market == derivatives_vector.market
+
+    manifest_path = Path(str(snapshot.manifest_path))
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    payload["market_mappings"][0]["autobot_spot_symbol"] = "ETHEUR"
+    manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(DerivativesSpotResearchContextError, match="mapping fingerprint"):
+        build_derivatives_spot_research_context_from_snapshot(
+            derivatives_snapshot_manifest=manifest_path,
+            spot_vector=spot_vector,
+            derivatives_vector=derivatives_vector,
         )
 
 
