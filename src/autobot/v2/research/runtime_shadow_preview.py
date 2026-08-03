@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from hashlib import sha256
 import math
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from autobot.v2.contracts import (
     AlphaSignal,
@@ -22,10 +22,16 @@ from autobot.v2.contracts import (
     RiskDecision,
     StrategyArtifactReference,
     TargetPortfolio,
+    VerifiedFeatureVector,
     contract_to_dict,
 )
 from autobot.v2.strategy_runtime_policy import is_runtime_engine_retired
 
+from .derivatives_spot_context import (
+    DerivativesSpotResearchContextError,
+    FuturesSpotResearchMapping,
+    build_derivatives_spot_research_context,
+)
 from .portfolio_construction import PortfolioConstructionError, build_target_portfolio
 from .shadow_governance import strategy_artifact_reference_from_mapping
 from .verified_feature_vector import VerifiedFeatureVectorError, parse_verified_feature_vectors
@@ -94,6 +100,11 @@ def preview_runtime_buy_signal(
         feature_vectors = parse_verified_feature_vectors(
             metadata.get("verified_feature_vectors"),
             snapshots=artifact.feature_snapshots,
+            observed_at=available_at,
+        )
+        _validate_derivatives_spot_context(
+            metadata,
+            vectors=feature_vectors,
             observed_at=available_at,
         )
         expected_edge_bps = _positive_finite_metadata_number(metadata, "net_expected_edge_bps")
@@ -222,6 +233,99 @@ def _feature_versions(metadata: Mapping[str, Any]) -> dict[str, str]:
     if not all(normalized.values()):
         raise ValueError("feature_versions_invalid")
     return normalized
+
+
+def _validate_derivatives_spot_context(
+    metadata: Mapping[str, Any],
+    *,
+    vectors: Sequence[VerifiedFeatureVector],
+    observed_at: datetime,
+) -> None:
+    """Require explicit mapping evidence when a preview consumes derivatives.
+
+    A one-source spot preview retains the v1 shape. A two-source context is
+    stricter: the persisted metadata must reconstruct an exact research-only
+    spot/perpetual context at the same point in time. The resulting preview is
+    still terminated by a rejected risk decision below.
+    """
+
+    derivative_vectors = [
+        vector
+        for vector in vectors
+        if vector.feature_snapshot.snapshot_kind == "DERIVATIVES_POINT_IN_TIME"
+    ]
+    if not derivative_vectors:
+        return
+    spot_vectors = [
+        vector
+        for vector in vectors
+        if vector.feature_snapshot.snapshot_kind in {"FEATURE_SNAPSHOT", "CANONICAL_FEATURE_SNAPSHOT"}
+    ]
+    if len(vectors) != 2 or len(spot_vectors) != 1 or len(derivative_vectors) != 1:
+        raise ValueError("derivatives_spot_feature_vector_composition_invalid")
+    context_payload = metadata.get("derivatives_spot_context")
+    if not isinstance(context_payload, Mapping):
+        raise ValueError("derivatives_spot_context_required")
+    if str(context_payload.get("context_kind") or "").upper() != "DERIVATIVES_SPOT_RESEARCH_CONTEXT_V1":
+        raise ValueError("derivatives_spot_context_kind_invalid")
+    mapping_payload = context_payload.get("mapping")
+    if not isinstance(mapping_payload, Mapping):
+        raise ValueError("derivatives_spot_context_mapping_required")
+    try:
+        mapping = FuturesSpotResearchMapping(
+            mapping_id=str(mapping_payload.get("mapping_id") or ""),
+            futures_market=_market_identity_from_context(mapping_payload.get("futures_market")),
+            spot_market=_market_identity_from_context(mapping_payload.get("spot_market")),
+            mapping_source=str(mapping_payload.get("mapping_source") or ""),
+            mapping_fingerprint=str(mapping_payload.get("mapping_fingerprint") or ""),
+            price_conversion_allowed=mapping_payload.get("price_conversion_allowed") is True,
+            research_only=mapping_payload.get("research_only") is True,
+            paper_capital_allowed=mapping_payload.get("paper_capital_allowed") is True,
+            live_allowed=mapping_payload.get("live_allowed") is True,
+            promotable=mapping_payload.get("promotable") is True,
+        )
+        context = build_derivatives_spot_research_context(
+            mapping=mapping,
+            spot_vector=spot_vectors[0],
+            derivatives_vector=derivative_vectors[0],
+            observed_at=observed_at,
+        )
+    except (DerivativesSpotResearchContextError, TypeError, ValueError) as exc:
+        raise ValueError(f"derivatives_spot_context_invalid:{exc}") from exc
+    if context_payload.get("spot_feature_vector_fingerprint") != spot_vectors[0].fingerprint:
+        raise ValueError("derivatives_spot_context_spot_vector_mismatch")
+    if context_payload.get("derivatives_feature_vector_fingerprint") != derivative_vectors[0].fingerprint:
+        raise ValueError("derivatives_spot_context_derivatives_vector_mismatch")
+    if context_payload.get("observed_at") != context.observed_at.isoformat():
+        raise ValueError("derivatives_spot_context_observed_at_mismatch")
+    if context_payload.get("price_conversion_allowed") is not False:
+        raise ValueError("derivatives_spot_context_price_conversion_forbidden")
+    if context_payload.get("spot_pnl_market") != _market_mapping(context.mapping.spot_market):
+        raise ValueError("derivatives_spot_context_spot_pnl_market_mismatch")
+    if context_payload.get("derivatives_context_market") != _market_mapping(context.mapping.futures_market):
+        raise ValueError("derivatives_spot_context_derivatives_market_mismatch")
+
+
+def _market_identity_from_context(value: object) -> MarketIdentity:
+    if not isinstance(value, Mapping):
+        raise ValueError("derivatives_spot_context_market_required")
+    return MarketIdentity(
+        exchange=str(value.get("exchange") or ""),
+        market_type=str(value.get("market_type") or ""),
+        symbol=str(value.get("symbol") or ""),
+        base_asset=str(value.get("base_asset") or ""),
+        quote_asset=str(value.get("quote_asset") or ""),
+    )
+
+
+def _market_mapping(market: MarketIdentity) -> dict[str, str]:
+    return {
+        "exchange": market.exchange,
+        "market_type": market.market_type,
+        "symbol": market.symbol,
+        "base_asset": market.base_asset,
+        "quote_asset": market.quote_asset,
+    }
 
 
 def _strategy_artifact_reference(

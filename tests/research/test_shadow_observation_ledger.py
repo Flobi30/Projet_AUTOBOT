@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import ast
 import csv
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
+from hashlib import sha256
 import json
 import sqlite3
 from pathlib import Path
@@ -38,8 +40,14 @@ from autobot.v2.research.verified_feature_vector_publication import (
     publish_verified_feature_vectors,
 )
 from autobot.v2.research.offline_shadow_provenance import (
+    OfflineDerivativesSpotShadowProvenanceBinding,
     OfflineShadowProvenanceError,
+    bind_offline_derivatives_spot_shadow_provenance,
     bind_offline_shadow_provenance,
+)
+from autobot.v2.research.derivatives_spot_context import (
+    FuturesSpotResearchMapping,
+    build_derivatives_spot_research_context,
 )
 
 
@@ -167,6 +175,84 @@ def _artifact(vector: VerifiedFeatureVector, *, status: str = "SHADOW_ELIGIBLE")
         experiment_id="shadow-observation-experiment",
         experiment_fingerprint="shadow-observation-experiment-fingerprint",
         human_approval_reference="shadow-observation-human-review",
+    )
+
+
+def _derivatives_vector(observed_at: datetime) -> VerifiedFeatureVector:
+    market = MarketIdentity("kraken_futures", "perpetual", "PF_XBTUSD", "BTC", "USD")
+    snapshot = FeatureSnapshotReference(
+        feature_snapshot_id="derivatives_shadow_observation",
+        fingerprint="derivatives-shadow-logical-fingerprint",
+        snapshot_kind="DERIVATIVES_POINT_IN_TIME",
+        source_snapshot_id="derivatives_shadow_observation_source",
+        source_snapshot_fingerprint="derivatives-shadow-source-fingerprint",
+        feature_registry_fingerprint="derivatives-feature-registry-fingerprint",
+        feature_versions={"funding_rate_relative": "1.0.0"},
+        runtime_parity_proven=True,
+        material_verified=True,
+        bundle_content_fingerprint="derivatives-bundle-content-fingerprint",
+    )
+    return VerifiedFeatureVector(
+        feature_snapshot=snapshot,
+        market=market,
+        timeframe="funding_interval",
+        observed_at=observed_at,
+        values=(
+            FeatureValue(
+                "funding_rate_relative",
+                "1.0.0",
+                market,
+                "funding_interval",
+                observed_at - timedelta(hours=1),
+                observed_at,
+                snapshot.source_snapshot_id,
+                -0.001,
+            ),
+        ),
+    )
+
+
+def _multisource_artifact(
+    spot_vector: VerifiedFeatureVector,
+    derivatives_vector: VerifiedFeatureVector,
+) -> StrategyArtifact:
+    data_snapshot_id = "combined_" + sha256(
+        json.dumps(
+            {
+                "spot": spot_vector.feature_snapshot.source_snapshot_id,
+                "derivatives": derivatives_vector.feature_snapshot.source_snapshot_id,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()[:16]
+    return StrategyArtifact(
+        strategy_id="trend_momentum",
+        strategy_version="shadow-observation-multisource-v1",
+        code_commit="shadow-observation-multisource-fixture",
+        data_snapshot_id=data_snapshot_id,
+        feature_versions={
+            **dict(spot_vector.feature_snapshot.feature_versions),
+            **dict(derivatives_vector.feature_snapshot.feature_versions),
+        },
+        parameters={"fixture": True, "derivatives_context_only": True},
+        risk_mandate_fingerprint="shadow-observation-mandate",
+        validation_manifest_fingerprint="shadow-observation-validation",
+        feature_snapshots=(spot_vector.feature_snapshot, derivatives_vector.feature_snapshot),
+        risk_mandate=RiskMandateReference(
+            mandate_id="shadow-observation-mandate",
+            strategy_id="trend_momentum",
+            fingerprint="shadow-observation-mandate",
+            mode_allowed="shadow",
+            capital_max_eur=0.0,
+            shadow_notional_max_eur=1.0,
+            expires_at="2027-01-01T00:00:00+00:00",
+            human_approved_required_for_risk_increase=True,
+        ),
+        status="SHADOW_ELIGIBLE",
+        experiment_id="shadow-observation-multisource-experiment",
+        experiment_fingerprint="shadow-observation-multisource-experiment-fingerprint",
+        human_approval_reference="shadow-observation-multisource-human-review",
     )
 
 
@@ -437,6 +523,92 @@ def test_offline_shadow_provenance_rejects_stale_or_mismatched_feature_evidence(
             vector=_vector(),
             decision_at=vector.observed_at,
             signal_id="offline-shadow-mismatch",
+            net_expected_edge_bps=12.0,
+            shadow_notional_eur=1.0,
+        )
+
+
+def test_offline_derivatives_spot_provenance_reaches_only_the_blocked_preview_and_shadow_ledger(tmp_path):
+    spot_vector = _vector()
+    derivatives_vector = _derivatives_vector(spot_vector.observed_at)
+    context = build_derivatives_spot_research_context(
+        mapping=FuturesSpotResearchMapping(
+            mapping_id="derivatives-shadow-fixture",
+            futures_market=derivatives_vector.market,
+            spot_market=spot_vector.market,
+            mapping_source="derivatives_feature_snapshot_v2",
+            mapping_fingerprint="derivatives-shadow-mapping-fingerprint",
+        ),
+        spot_vector=spot_vector,
+        derivatives_vector=derivatives_vector,
+        observed_at=spot_vector.observed_at,
+    )
+    artifact = _multisource_artifact(spot_vector, derivatives_vector)
+
+    binding = bind_offline_derivatives_spot_shadow_provenance(
+        artifact=artifact,
+        context=context,
+        decision_at=spot_vector.observed_at,
+        signal_id="offline-derivatives-shadow-signal",
+        net_expected_edge_bps=12.0,
+        shadow_notional_eur=1.0,
+    )
+
+    assert isinstance(binding, OfflineDerivativesSpotShadowProvenanceBinding)
+    metadata = binding.to_preview_metadata()
+    preview = preview_runtime_buy_signal(
+        symbol="BTC/EUR",
+        price=65_000.0,
+        signal_timestamp=spot_vector.observed_at,
+        decision_id="offline-derivatives-shadow-decision",
+        metadata=metadata,
+    )
+    assert preview.status == "SHADOW_PREVIEW_READY"
+    assert preview.risk_decision is not None
+    assert preview.risk_decision.approved is False
+    assert preview.to_dict()["execution_command_created"] is False
+    assert set(metadata["verified_feature_vectors"]) == {
+        spot_vector.feature_snapshot.feature_snapshot_id,
+        derivatives_vector.feature_snapshot.feature_snapshot_id,
+    }
+    assert metadata["market_identity"]["symbol"] == "BTCEUR"
+
+    missing_context_metadata = dict(metadata)
+    missing_context_metadata.pop("derivatives_spot_context")
+    missing_context_preview = preview_runtime_buy_signal(
+        symbol="BTC/EUR",
+        price=65_000.0,
+        signal_timestamp=spot_vector.observed_at,
+        decision_id="offline-derivatives-shadow-missing-context",
+        metadata=missing_context_metadata,
+    )
+    assert missing_context_preview.status == "SHADOW_PREVIEW_REJECTED"
+    assert missing_context_preview.reason == "derivatives_spot_context_required"
+
+    assert preview.target_portfolio is not None
+    observation = build_shadow_observation_from_target(
+        artifact=artifact,
+        target_portfolio=preview.target_portfolio,
+        feature_vectors=binding.vectors,
+    )
+    ledger = ShadowObservationLedger(tmp_path / "multisource_shadow_observations.sqlite3")
+    recorded = ledger.record(artifact=artifact, observation=observation, feature_vectors=binding.vectors)
+    assert recorded.duplicate is False
+    assert ledger.count() == 1
+    assert recorded.paper_capital_allowed is False
+    assert recorded.live_allowed is False
+
+    with pytest.raises(OfflineShadowProvenanceError, match="manifest-sealed mapping"):
+        bind_offline_derivatives_spot_shadow_provenance(
+            artifact=artifact,
+            context=build_derivatives_spot_research_context(
+                mapping=replace(context.mapping, mapping_source="manual_mapping"),
+                spot_vector=spot_vector,
+                derivatives_vector=derivatives_vector,
+                observed_at=spot_vector.observed_at,
+            ),
+            decision_at=spot_vector.observed_at,
+            signal_id="offline-derivatives-shadow-manual-mapping",
             net_expected_edge_bps=12.0,
             shadow_notional_eur=1.0,
         )

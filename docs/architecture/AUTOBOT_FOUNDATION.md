@@ -111,9 +111,13 @@ AUTOBOT spot market. It requires a material-verified, forward-only derivative
 bundle, a manifest-sealed futures-to-spot mapping, the same base asset and one
 common observation time. It never converts a perpetual USD price to EUR; the
 spot vector remains the only future source of EUR PnL, costs and capacity.
-This is not yet an artifact hand-off: no strategy adapter, shadow ledger or
-runtime consumer accepts the context until its own provenance and governance
-tests are added.
+`bind_offline_derivatives_spot_shadow_provenance` is the corresponding
+batch-only artifact hand-off. It accepts the context only when its two exact
+vectors, their versions, the sealed mapping and the artifact's combined data
+identity agree. The runtime preview independently reconstructs that context
+before producing its still-blocked result. The shadow ledger can record the
+same two vectors as research evidence, but paper/live permissions and the
+risk decision remain false.
 
 ## Shadow-artifact readiness audit
 
