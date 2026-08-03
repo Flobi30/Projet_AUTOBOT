@@ -15,7 +15,7 @@ import json
 import math
 from typing import Mapping, Sequence
 
-from autobot.v2.contracts import AlphaSignal, MarketIdentity, TargetPortfolio
+from autobot.v2.contracts import AlphaSignal, MarketIdentity, PortfolioSignalAttribution, TargetPortfolio
 
 
 class PortfolioConstructionError(ValueError):
@@ -80,6 +80,7 @@ class PortfolioConstructionResult:
     accepted_signal_ids: tuple[str, ...]
     rejected_signals: tuple[SignalRejection, ...]
     turnover_weight: float
+    signal_attributions: tuple[PortfolioSignalAttribution, ...] = ()
     research_only: bool = True
     paper_capital_allowed: bool = False
     live_allowed: bool = False
@@ -343,6 +344,7 @@ def build_target_portfolio(
     data_snapshot_ids: set[str] = set()
     feature_versions: dict[str, str] = {}
     accepted: list[str] = []
+    accepted_signals: list[AlphaSignal] = []
     rejected: list[SignalRejection] = []
 
     for signal in sorted(signals, key=lambda item: item.signal_id):
@@ -373,6 +375,7 @@ def build_target_portfolio(
         data_snapshot_ids.add(signal.data_snapshot_id)
         feature_versions.update(signal.feature_versions)
         accepted.append(signal.signal_id)
+        accepted_signals.append(signal)
 
     target_weights = _capped_score_weights(scores, investable_weight=1.0 - config.reserve_cash_weight, cap=config.max_symbol_weight)
     target_weights = _apply_correlation_group_cap(
@@ -380,6 +383,7 @@ def build_target_portfolio(
         correlation_groups=config.correlation_groups,
         max_group_weight=config.max_correlation_group_weight,
     )
+    pre_turnover_target_weights = dict(target_weights)
     target_weights, turnover = _apply_turnover_limit(
         target_weights,
         current_weights=current_weights or {},
@@ -394,6 +398,13 @@ def build_target_portfolio(
     )
     turnover = _turnover_weight(target_weights, current_weights or {})
     reserve = max(0.0, 1.0 - sum(target_weights.values()))
+    signal_attributions = _build_signal_attributions(
+        accepted_signals,
+        scores=scores,
+        pre_turnover_target_weights=pre_turnover_target_weights,
+        final_target_weights=target_weights,
+        current_weights=current_weights or {},
+    )
     rationale = {
         symbol: (
             f"expected_edge_bps={scores[symbol]:.6f};"
@@ -422,12 +433,14 @@ def build_target_portfolio(
             for symbol, weight in sorted(target_weights.items())
             if weight > 0.0 and symbol in market_identities
         },
+        source_signal_attributions=signal_attributions,
     )
     return PortfolioConstructionResult(
         target=target,
         accepted_signal_ids=tuple(accepted),
         rejected_signals=tuple(rejected),
         turnover_weight=turnover,
+        signal_attributions=signal_attributions,
     )
 
 
@@ -751,6 +764,69 @@ def _fingerprint(value: object, field_name: str) -> str:
     if len(normalized) != 64 or any(character not in "0123456789abcdef" for character in normalized):
         raise PortfolioConstructionError(f"{field_name} must be a SHA-256 hex digest")
     return normalized
+
+
+def _build_signal_attributions(
+    signals: Sequence[AlphaSignal],
+    *,
+    scores: Mapping[str, float],
+    pre_turnover_target_weights: Mapping[str, float],
+    final_target_weights: Mapping[str, float],
+    current_weights: Mapping[str, float],
+) -> tuple[PortfolioSignalAttribution, ...]:
+    """Split fresh target exposure across its accepted strategy signals.
+
+    The final portfolio can deliberately retain a legacy position when the
+    turnover budget prevents a full rebalance. Such retained exposure must not
+    be credited to a newly accepted alpha. Therefore the per-signal amount is
+    limited to the positive delta versus the existing weight, as well as the
+    pre-turnover alpha target for that symbol.
+    """
+
+    signals_by_symbol: dict[str, list[AlphaSignal]] = {}
+    for signal in signals:
+        signals_by_symbol.setdefault(signal.market.symbol.upper(), []).append(signal)
+    normalized_current = {
+        str(symbol).strip().upper(): float(weight)
+        for symbol, weight in current_weights.items()
+        if float(weight) > 0.0
+    }
+    attributions: list[PortfolioSignalAttribution] = []
+    for symbol, symbol_signals in sorted(signals_by_symbol.items()):
+        ordered = sorted(symbol_signals, key=lambda signal: signal.signal_id)
+        score_total = float(scores.get(symbol, 0.0))
+        if not math.isfinite(score_total) or score_total <= 0.0:
+            raise PortfolioConstructionError("accepted signal attribution requires positive aggregate expected edge")
+        pre_turnover_weight = max(0.0, float(pre_turnover_target_weights.get(symbol, 0.0)))
+        final_weight = max(0.0, float(final_target_weights.get(symbol, 0.0)))
+        fresh_weight = min(
+            pre_turnover_weight,
+            max(0.0, final_weight - normalized_current.get(symbol, 0.0)),
+        )
+        remaining_pre_turnover = pre_turnover_weight
+        remaining_fresh = fresh_weight
+        for index, signal in enumerate(ordered):
+            edge = float(signal.expected_edge_bps or 0.0)
+            share = edge / score_total
+            if index == len(ordered) - 1:
+                signal_pre_turnover_weight = max(0.0, remaining_pre_turnover)
+                signal_fresh_weight = max(0.0, remaining_fresh)
+            else:
+                signal_pre_turnover_weight = max(0.0, pre_turnover_weight * share)
+                signal_fresh_weight = max(0.0, fresh_weight * share)
+                remaining_pre_turnover -= signal_pre_turnover_weight
+                remaining_fresh -= signal_fresh_weight
+            attributions.append(
+                PortfolioSignalAttribution(
+                    signal_id=signal.signal_id,
+                    strategy_id=signal.strategy_id,
+                    market=signal.market,
+                    expected_edge_bps=edge,
+                    pre_turnover_target_weight=signal_pre_turnover_weight,
+                    new_allocation_weight=signal_fresh_weight,
+                )
+            )
+    return tuple(sorted(attributions, key=lambda item: item.signal_id))
 
 
 def _signal_rejection_reason(

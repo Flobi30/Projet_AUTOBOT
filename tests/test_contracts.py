@@ -15,6 +15,7 @@ from autobot.v2.contracts import (
     RiskDecision,
     RiskMandateReference,
     StrategyArtifactReference,
+    PortfolioSignalAttribution,
     TargetPortfolio,
     VerifiedFeatureVector,
     contract_fingerprint,
@@ -344,6 +345,52 @@ def test_target_portfolio_and_order_intent_keep_risk_boundary_explicit():
             generated_at=now,
             target_weights={"BTCZEUR": float("nan")},
             reserve_cash_weight=0.2,
+        )
+
+
+def test_target_portfolio_signal_attribution_cannot_claim_unsourced_or_excess_weight():
+    now = datetime(2026, 7, 10, 12, tzinfo=timezone.utc)
+    attribution = PortfolioSignalAttribution(
+        signal_id="signal-1",
+        strategy_id="research_strategy",
+        market=_market(),
+        expected_edge_bps=12.0,
+        pre_turnover_target_weight=0.4,
+        new_allocation_weight=0.2,
+    )
+    target = TargetPortfolio(
+        decision_id="attribution-decision",
+        generated_at=now,
+        target_weights={"BTCZEUR": 0.4},
+        reserve_cash_weight=0.6,
+        source_signal_ids=("signal-1",),
+        source_strategy_ids=("research_strategy",),
+        source_markets={"BTCZEUR": _market()},
+        source_signal_attributions=(attribution,),
+    )
+
+    assert target.source_signal_attributions == (attribution,)
+    with pytest.raises(ValueError, match="must match source signal ids"):
+        TargetPortfolio(
+            decision_id="attribution-mismatch",
+            generated_at=now,
+            target_weights={"BTCZEUR": 0.4},
+            reserve_cash_weight=0.6,
+            source_signal_ids=("other-signal",),
+            source_strategy_ids=("research_strategy",),
+            source_markets={"BTCZEUR": _market()},
+            source_signal_attributions=(attribution,),
+        )
+    with pytest.raises(ValueError, match="cannot exceed target weight"):
+        TargetPortfolio(
+            decision_id="attribution-excess",
+            generated_at=now,
+            target_weights={"BTCZEUR": 0.1},
+            reserve_cash_weight=0.9,
+            source_signal_ids=("signal-1",),
+            source_strategy_ids=("research_strategy",),
+            source_markets={"BTCZEUR": _market()},
+            source_signal_attributions=(attribution,),
         )
 
 

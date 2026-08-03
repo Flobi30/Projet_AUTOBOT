@@ -397,6 +397,49 @@ class StrategyArtifactReference:
         object.__setattr__(self, "feature_snapshots", snapshots)
 
 @dataclass(frozen=True)
+class PortfolioSignalAttribution:
+    """Research provenance for one signal's contribution to a target portfolio.
+
+    ``new_allocation_weight`` is deliberately an incremental allocation, not
+    a claim that an entire retained position belongs to a newly accepted
+    strategy. This preserves the distinction between fresh alpha exposure and
+    legacy exposure retained solely because turnover is constrained.
+    """
+
+    signal_id: str
+    strategy_id: str
+    market: MarketIdentity
+    expected_edge_bps: Decimal | float
+    pre_turnover_target_weight: Decimal | float
+    new_allocation_weight: Decimal | float
+    contract_version: int = CONTRACT_VERSION
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.market, MarketIdentity):
+            raise ValueError("portfolio signal attribution requires MarketIdentity")
+        for field_name in ("signal_id", "strategy_id"):
+            object.__setattr__(self, field_name, _required(getattr(self, field_name), field_name))
+        expected_edge_bps = float(self.expected_edge_bps)
+        pre_turnover_target_weight = float(self.pre_turnover_target_weight)
+        new_allocation_weight = float(self.new_allocation_weight)
+        if not math.isfinite(expected_edge_bps) or expected_edge_bps <= 0.0:
+            raise ValueError("portfolio signal attribution expected_edge_bps must be positive and finite")
+        if (
+            not math.isfinite(pre_turnover_target_weight)
+            or not math.isfinite(new_allocation_weight)
+            or not 0.0 <= pre_turnover_target_weight <= 1.0
+            or not 0.0 <= new_allocation_weight <= 1.0
+        ):
+            raise ValueError("portfolio signal attribution weights must be finite values in [0, 1]")
+        if new_allocation_weight > pre_turnover_target_weight + 1e-12:
+            raise ValueError("portfolio signal attribution cannot increase a pre-turnover target")
+        object.__setattr__(self, "strategy_id", self.strategy_id.lower())
+        object.__setattr__(self, "expected_edge_bps", expected_edge_bps)
+        object.__setattr__(self, "pre_turnover_target_weight", pre_turnover_target_weight)
+        object.__setattr__(self, "new_allocation_weight", new_allocation_weight)
+
+
+@dataclass(frozen=True)
 class TargetPortfolio:
     decision_id: str
     generated_at: datetime
@@ -409,6 +452,7 @@ class TargetPortfolio:
     source_data_snapshot_ids: tuple[str, ...] = ()
     source_feature_versions: Mapping[str, str] = field(default_factory=dict)
     source_markets: Mapping[str, MarketIdentity] = field(default_factory=dict)
+    source_signal_attributions: tuple[PortfolioSignalAttribution, ...] = ()
     contract_version: int = CONTRACT_VERSION
 
     def __post_init__(self) -> None:
@@ -426,6 +470,7 @@ class TargetPortfolio:
         snapshot_ids = tuple(_required(value, "source data snapshot id") for value in self.source_data_snapshot_ids)
         feature_versions = {str(key).strip(): str(value).strip() for key, value in self.source_feature_versions.items()}
         source_markets = {str(symbol).strip().upper(): market for symbol, market in self.source_markets.items()}
+        attributions = tuple(self.source_signal_attributions)
         if not all(feature_versions.keys()) or not all(feature_versions.values()):
             raise ValueError("target portfolio source feature versions must be non-empty")
         if any(not isinstance(market, MarketIdentity) for market in source_markets.values()):
@@ -443,6 +488,25 @@ class TargetPortfolio:
             or len(snapshot_ids) != len(set(snapshot_ids))
         ):
             raise ValueError("target portfolio source identifiers must be unique")
+        if any(not isinstance(item, PortfolioSignalAttribution) for item in attributions):
+            raise ValueError("target portfolio signal attributions must be PortfolioSignalAttribution values")
+        attribution_signal_ids = tuple(item.signal_id for item in attributions)
+        if len(attribution_signal_ids) != len(set(attribution_signal_ids)):
+            raise ValueError("target portfolio signal attribution ids must be unique")
+        if attributions and set(attribution_signal_ids) != set(signal_ids):
+            raise ValueError("target portfolio signal attributions must match source signal ids")
+        if attributions and {item.strategy_id for item in attributions} != set(strategy_ids):
+            raise ValueError("target portfolio signal attributions must match source strategy ids")
+        attributed_weights: dict[str, float] = {}
+        for attribution in attributions:
+            symbol = attribution.market.symbol
+            attributed_weights[symbol] = attributed_weights.get(symbol, 0.0) + attribution.new_allocation_weight
+            source_market = source_markets.get(symbol)
+            if source_market is not None and source_market != attribution.market:
+                raise ValueError("target portfolio attribution market must match its source market")
+        for symbol, attributed_weight in attributed_weights.items():
+            if attributed_weight > weights.get(symbol, 0.0) + 1e-12:
+                raise ValueError("target portfolio signal attributions cannot exceed target weight")
         object.__setattr__(self, "decision_id", _required(self.decision_id, "decision_id"))
         object.__setattr__(self, "generated_at", generated_at)
         object.__setattr__(self, "target_weights", weights)
@@ -454,6 +518,7 @@ class TargetPortfolio:
         object.__setattr__(self, "source_data_snapshot_ids", snapshot_ids)
         object.__setattr__(self, "source_feature_versions", feature_versions)
         object.__setattr__(self, "source_markets", dict(sorted(source_markets.items())))
+        object.__setattr__(self, "source_signal_attributions", tuple(sorted(attributions, key=lambda item: item.signal_id)))
 
 
 @dataclass(frozen=True)

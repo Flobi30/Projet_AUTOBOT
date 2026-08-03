@@ -26,6 +26,7 @@ pytestmark = pytest.mark.unit
 def _signal(
     *,
     signal_id: str,
+    strategy_id: str = "funding_basis",
     symbol: str = "BTCEUR",
     quote: str = "EUR",
     direction: str = "long",
@@ -35,7 +36,7 @@ def _signal(
 ) -> AlphaSignal:
     timestamp = datetime(2026, 7, 11, 12, tzinfo=timezone.utc)
     return AlphaSignal(
-        strategy_id="funding_basis",
+        strategy_id=strategy_id,
         strategy_version="v1",
         signal_id=signal_id,
         market=MarketIdentity("kraken", market_type, symbol, symbol.replace(quote, ""), quote),
@@ -187,6 +188,55 @@ def test_target_portfolio_rejects_same_symbol_from_a_different_market_identity()
     assert result.accepted_signal_ids == ("kraken",)
     assert result.rejected_signals == (SignalRejection("other-exchange", "market_identity_conflict"),)
     assert result.target.source_markets == {"BTCEUR": _spot_market("BTCEUR")}
+
+
+def test_target_portfolio_records_per_signal_strategy_allocation_without_losing_shared_symbol_provenance():
+    now = datetime(2026, 7, 11, 12, tzinfo=timezone.utc)
+    result = build_target_portfolio(
+        (
+            _signal(signal_id="trend", strategy_id="trend_momentum", edge=30.0),
+            _signal(signal_id="mean", strategy_id="mean_reversion", edge=10.0),
+        ),
+        decision_id="strategy-attribution",
+        decision_at=now,
+        config=PortfolioConstructionConfig(reserve_cash_weight=0.20, max_symbol_weight=0.35),
+    )
+
+    by_signal = {item.signal_id: item for item in result.signal_attributions}
+
+    assert result.target.source_signal_attributions == result.signal_attributions
+    assert set(by_signal) == {"mean", "trend"}
+    assert by_signal["trend"].strategy_id == "trend_momentum"
+    assert by_signal["mean"].strategy_id == "mean_reversion"
+    assert by_signal["trend"].market == _spot_market("BTCEUR")
+    assert by_signal["trend"].new_allocation_weight == pytest.approx(0.2625)
+    assert by_signal["mean"].new_allocation_weight == pytest.approx(0.0875)
+    assert sum(item.new_allocation_weight for item in by_signal.values()) == pytest.approx(
+        result.target.target_weights["BTCEUR"]
+    )
+
+
+def test_target_portfolio_does_not_credit_turnover_retained_legacy_weight_to_new_alpha():
+    now = datetime(2026, 7, 11, 12, tzinfo=timezone.utc)
+    result = build_target_portfolio(
+        (_signal(signal_id="trend", strategy_id="trend_momentum", edge=20.0),),
+        decision_id="legacy-attribution",
+        decision_at=now,
+        current_weights={"BTCEUR": 0.40},
+        config=PortfolioConstructionConfig(
+            reserve_cash_weight=0.20,
+            max_symbol_weight=0.80,
+            max_turnover_weight=0.10,
+            max_correlation_group_weight=0.80,
+        ),
+    )
+
+    attribution = result.signal_attributions[0]
+
+    assert result.target.target_weights["BTCEUR"] == pytest.approx(0.60)
+    assert attribution.pre_turnover_target_weight == pytest.approx(0.80)
+    assert attribution.new_allocation_weight == pytest.approx(0.20)
+    assert attribution.new_allocation_weight < result.target.target_weights["BTCEUR"]
 
 
 def test_capacity_requires_observed_liquidity_and_enforces_participation_limit():
