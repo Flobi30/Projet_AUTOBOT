@@ -7,7 +7,6 @@ research and shadow replays so feature definitions cannot silently diverge.
 
 from __future__ import annotations
 
-from bisect import bisect_right
 from collections import deque
 import hashlib
 from itertools import zip_longest
@@ -220,11 +219,12 @@ class FeatureRegistry:
                         )
                 index = group_end
             return
-        # A historical backfill commonly becomes available in one ingestion
-        # batch.  Searching every previously published row per target makes
-        # that normal case quadratic.  Keep one event-time index of currently
-        # published rows instead: each feature only needs its largest bounded
-        # lookback ending at the target event.
+        # A historical backfill can arrive out of event-time order. Keep an
+        # order-statistics index of the events visible at each availability
+        # boundary: a plain sorted list would shift or re-merge every earlier
+        # event for every later availability group and becomes quadratic on a
+        # large canonical history. The Fenwick index keeps the point-in-time
+        # rule exact while each insert/query remains logarithmic.
         event_order = sorted(
             range(len(normalized)),
             key=lambda item: (
@@ -235,7 +235,7 @@ class FeatureRegistry:
         )
         event_position_by_row = {row_index: position for position, row_index in enumerate(event_order)}
         event_rows = [normalized[row_index] for row_index in event_order]
-        published_event_positions: list[int] = []
+        published = _FenwickIndex(len(event_rows))
         index = 0
         while index < len(normalized):
             available_time = normalized[index]["available_time"]
@@ -244,14 +244,17 @@ class FeatureRegistry:
             group_end = index + 1
             while group_end < len(normalized) and normalized[group_end]["available_time"] == available_time:
                 group_end += 1
-            group_indices = sorted(event_position_by_row[row_index] for row_index in range(index, group_end))
-            published_event_positions = _merge_sorted_indices(published_event_positions, group_indices)
+            for row_index in range(index, group_end):
+                published.add(event_position_by_row[row_index])
             for row_index in range(index, group_end):
                 target = normalized[row_index]
                 target_position = event_position_by_row[row_index]
-                end = bisect_right(published_event_positions, target_position)
-                start = max(0, end - (max_lookback + 1))
-                observed = [event_rows[position] for position in published_event_positions[start:end]]
+                end_rank = published.count_through(target_position)
+                start_rank = max(1, end_rank - max_lookback)
+                observed = [
+                    event_rows[published.position_at_rank(rank)]
+                    for rank in range(start_rank, end_rank + 1)
+                ]
                 for definition in definitions:
                     yield _compute_feature(
                         definition,
@@ -286,36 +289,66 @@ class FeatureRegistry:
         cutoff = _utc(as_of_time) if as_of_time else None
         normalized = _normalize_rows(rows)
         # Canonical OHLCV is ordered by both event and availability time.  In
-        # that ordinary case a target can only observe a bounded prefix, so
-        # retain only the largest required feature window.  The fallback keeps
-        # the stricter general rule for delayed/out-of-order data rather than
-        # silently assuming temporal monotonicity.
+        # that ordinary case a target can only observe a bounded prefix. The
+        # delayed-data path below uses a point-in-time order-statistics index
+        # rather than repeatedly scanning all visible history.
         monotonic_event_time = _event_times_are_monotonic(normalized)
         max_lookback = max((definition.lookback for definition in definitions), default=1)
-        for index, target in enumerate(normalized):
-            if cutoff and target["available_time"] > cutoff:
-                continue
-            if monotonic_event_time:
+        if monotonic_event_time:
+            for index, target in enumerate(normalized):
+                if cutoff and target["available_time"] > cutoff:
+                    break
                 observed = normalized[max(0, index - max_lookback) : index + 1]
-            else:
-                observed = sorted(
-                    (
-                        row
-                        for row in normalized
-                        if row["event_time"] <= target["event_time"]
-                        and row["available_time"] <= target["available_time"]
-                    ),
-                    key=lambda row: (row["event_time"], row["available_time"]),
-                )
-            for definition in definitions:
-                yield _compute_feature(
-                    definition,
-                    observed=observed,
-                    target=target,
-                    market=market,
-                    timeframe=timeframe,
-                    source_snapshot_id=source_snapshot_id,
-                )
+                for definition in definitions:
+                    yield _compute_feature(
+                        definition,
+                        observed=observed,
+                        target=target,
+                        market=market,
+                        timeframe=timeframe,
+                        source_snapshot_id=source_snapshot_id,
+                    )
+            return
+
+        event_order = sorted(
+            range(len(normalized)),
+            key=lambda item: (
+                normalized[item]["event_time"],
+                normalized[item]["available_time"],
+                json.dumps(normalized[item], default=str, sort_keys=True),
+            ),
+        )
+        event_position_by_row = {row_index: position for position, row_index in enumerate(event_order)}
+        event_rows = [normalized[row_index] for row_index in event_order]
+        published = _FenwickIndex(len(event_rows))
+        index = 0
+        while index < len(normalized):
+            available_time = normalized[index]["available_time"]
+            if cutoff and available_time > cutoff:
+                break
+            group_end = index + 1
+            while group_end < len(normalized) and normalized[group_end]["available_time"] == available_time:
+                group_end += 1
+            for row_index in range(index, group_end):
+                published.add(event_position_by_row[row_index])
+            for row_index in range(index, group_end):
+                target = normalized[row_index]
+                end_rank = published.count_through(event_position_by_row[row_index])
+                start_rank = max(1, end_rank - max_lookback)
+                observed = [
+                    event_rows[published.position_at_rank(rank)]
+                    for rank in range(start_rank, end_rank + 1)
+                ]
+                for definition in definitions:
+                    yield _compute_feature(
+                        definition,
+                        observed=observed,
+                        target=target,
+                        market=market,
+                        timeframe=timeframe,
+                        source_snapshot_id=source_snapshot_id,
+                    )
+            index = group_end
 
 
 def default_feature_registry() -> FeatureRegistry:
@@ -521,6 +554,59 @@ def _event_times_are_monotonic(rows: Sequence[Mapping[str, Any]]) -> bool:
         rows[index - 1]["event_time"] <= rows[index]["event_time"]
         for index in range(1, len(rows))
     )
+
+
+class _FenwickIndex:
+    """Sparse, ordered event positions with logarithmic rank lookups.
+
+    The event positions are fixed by the canonical event-time order. Rows
+    become visible later according to availability/ingestion time; this index
+    therefore stores only whether a position is currently observable. It is a
+    private implementation detail of the point-in-time replay paths.
+    """
+
+    def __init__(self, size: int) -> None:
+        if size < 0:
+            raise ValueError("Fenwick index size cannot be negative")
+        self._size = size
+        self._tree = [0] * (size + 1)
+
+    def add(self, position: int) -> None:
+        if position < 0 or position >= self._size:
+            raise IndexError("Fenwick index position is outside the event range")
+        cursor = position + 1
+        while cursor <= self._size:
+            self._tree[cursor] += 1
+            cursor += cursor & -cursor
+
+    def count_through(self, position: int) -> int:
+        """Return visible events whose event-order position is <= ``position``."""
+
+        if position < 0:
+            return 0
+        cursor = min(position + 1, self._size)
+        total = 0
+        while cursor:
+            total += self._tree[cursor]
+            cursor -= cursor & -cursor
+        return total
+
+    def position_at_rank(self, rank: int) -> int:
+        """Return the zero-based position of a one-based visible-event rank."""
+
+        total = self.count_through(self._size - 1)
+        if rank < 1 or rank > total:
+            raise IndexError("Fenwick visible-event rank is outside the published range")
+        cursor = 0
+        bit = 1 << (self._size.bit_length() - 1) if self._size else 0
+        remaining = rank
+        while bit:
+            candidate = cursor + bit
+            if candidate <= self._size and self._tree[candidate] < remaining:
+                cursor = candidate
+                remaining -= self._tree[candidate]
+            bit >>= 1
+        return cursor
 
 
 def _merge_sorted_indices(existing: Sequence[int], incoming: Sequence[int]) -> list[int]:

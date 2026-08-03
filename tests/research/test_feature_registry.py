@@ -231,6 +231,37 @@ def test_feature_registry_replays_long_monotonic_history_without_global_remerge(
     assert parity.parity_ok is True
 
 
+def test_feature_registry_replays_large_delayed_history_without_quadratic_remerge(monkeypatch):
+    start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    rows = [
+        {
+            "event_time": (start + timedelta(minutes=index)).isoformat(),
+            # Two delayed ingestion batches deliberately make availability
+            # order differ from event order while retaining valid UTC times.
+            "available_time": (start + timedelta(minutes=3_000 + (index % 2))).isoformat(),
+            "ingestion_time": (start + timedelta(minutes=3_000 + (index % 2))).isoformat(),
+            "close": str(100 + index),
+        }
+        for index in range(2_000)
+    ]
+    registry = FeatureRegistry((FeatureDefinition("return_1", "1", "canonical_ohlcv", "return_bps"),))
+
+    def _global_remerge_must_not_run(*_args, **_kwargs):
+        pytest.fail("delayed replay must use the logarithmic published-event index")
+
+    monkeypatch.setattr(feature_registry_module, "_merge_sorted_indices", _global_remerge_must_not_run)
+    parity = validate_historical_shadow_parity(
+        rows=rows,
+        market=_market(),
+        timeframe="1m",
+        source_snapshot_id="large-delayed-replay",
+        registry=registry,
+    )
+
+    assert parity.feature_count == len(rows)
+    assert parity.parity_ok is True
+
+
 def test_feature_registry_rejects_naive_temporal_rows():
     registry = default_feature_registry()
     with pytest.raises(ValueError, match="timezone-aware"):
