@@ -707,6 +707,39 @@ def _build_parser() -> argparse.ArgumentParser:
     sqlite_backup.add_argument("--manifest-path", default=None)
     sqlite_backup.set_defaults(handler=_cmd_sqlite_backup)
 
+    sqlite_backup_age = subparsers.add_parser(
+        "sqlite-backup-age",
+        help="Create an explicit age-encrypted SQLite backup using an externally managed public recipient",
+    )
+    sqlite_backup_age.add_argument("--source", required=True)
+    sqlite_backup_age.add_argument("--backup-path", required=True)
+    sqlite_backup_age.add_argument("--recipient", required=True)
+    sqlite_backup_age.add_argument(
+        "--staging-dir",
+        required=True,
+        help="Existing protected temporary directory; it must differ from the backup directory",
+    )
+    sqlite_backup_age.add_argument("--age-binary", default="age")
+    sqlite_backup_age.add_argument("--timeout-seconds", type=float, default=60.0)
+    sqlite_backup_age.add_argument("--manifest-path", default=None)
+    sqlite_backup_age.set_defaults(handler=_cmd_sqlite_backup_age)
+
+    sqlite_backup_age_restore = subparsers.add_parser(
+        "sqlite-backup-age-restore-drill",
+        help="Verify an age-encrypted SQLite backup through a disposable restore drill",
+    )
+    sqlite_backup_age_restore.add_argument("--backup-path", required=True)
+    sqlite_backup_age_restore.add_argument("--identity-file", required=True)
+    sqlite_backup_age_restore.add_argument("--expected-plaintext-backup-sha256", required=True)
+    sqlite_backup_age_restore.add_argument(
+        "--staging-dir",
+        required=True,
+        help="Existing protected temporary directory; it must differ from the backup directory",
+    )
+    sqlite_backup_age_restore.add_argument("--age-binary", default="age")
+    sqlite_backup_age_restore.add_argument("--timeout-seconds", type=float, default=60.0)
+    sqlite_backup_age_restore.set_defaults(handler=_cmd_sqlite_backup_age_restore_drill)
+
     sqlite_backup_scope_audit = subparsers.add_parser(
         "sqlite-backup-scope-audit",
         help="Read only the fixed AUTOBOT SQLite backup scope; it never creates a backup or enables execution",
@@ -3644,6 +3677,50 @@ def _cmd_sqlite_backup(args: argparse.Namespace) -> int:
         manifest_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         payload["manifest_path"] = str(manifest_path)
     _print_json(payload)
+    return 0
+
+
+def _cmd_sqlite_backup_age(args: argparse.Namespace) -> int:
+    """Create a public-key encrypted local backup without loading an identity."""
+
+    from dataclasses import asdict
+
+    from autobot.v2.research.resilience_readiness import create_age_encrypted_sqlite_backup
+
+    manifest = create_age_encrypted_sqlite_backup(
+        Path(args.source),
+        Path(args.backup_path),
+        recipient=str(args.recipient),
+        staging_dir=Path(args.staging_dir),
+        age_binary=str(args.age_binary),
+        timeout_seconds=float(args.timeout_seconds),
+    )
+    payload = asdict(manifest)
+    if args.manifest_path:
+        manifest_path = Path(args.manifest_path)
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        payload["manifest_path"] = str(manifest_path)
+    _print_json(payload)
+    return 0
+
+
+def _cmd_sqlite_backup_age_restore_drill(args: argparse.Namespace) -> int:
+    """Verify encrypted recovery without exposing an identity in AUTOBOT output."""
+
+    from dataclasses import asdict
+
+    from autobot.v2.research.resilience_readiness import verify_age_encrypted_sqlite_restore_drill
+
+    manifest = verify_age_encrypted_sqlite_restore_drill(
+        Path(args.backup_path),
+        identity_file=Path(args.identity_file),
+        expected_plaintext_backup_sha256=str(args.expected_plaintext_backup_sha256),
+        staging_dir=Path(args.staging_dir),
+        age_binary=str(args.age_binary),
+        timeout_seconds=float(args.timeout_seconds),
+    )
+    _print_json(asdict(manifest))
     return 0
 
 

@@ -1,5 +1,6 @@
 import json
 import sqlite3
+import subprocess
 from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
@@ -1950,6 +1951,56 @@ def test_cli_sqlite_backup_writes_manifest_without_mutating_source(tmp_path, cap
     assert output["paper_capital_allowed"] is False
     assert output["live_allowed"] is False
     assert source_path.read_bytes() == before
+
+
+def test_cli_sqlite_backup_age_requires_explicit_public_recipient_and_staging(tmp_path, capsys, monkeypatch):
+    import autobot.v2.research.resilience_readiness as resilience_readiness
+
+    source_path = tmp_path / "source.sqlite3"
+    backup_path = tmp_path / "encrypted" / "backup.sqlite3.age"
+    manifest_path = tmp_path / "encrypted" / "backup.json"
+    staging_path = tmp_path / "protected_staging"
+    staging_path.mkdir()
+    with sqlite3.connect(source_path) as connection:
+        connection.execute("CREATE TABLE evidence (id INTEGER PRIMARY KEY, value TEXT)")
+        connection.execute("INSERT INTO evidence(value) VALUES ('preserved')")
+    before = source_path.read_bytes()
+
+    def fake_age(command, **_kwargs):
+        output_path = Path(command[command.index("-o") + 1])
+        output_path.write_bytes(b"AUTOBOT_TEST_AGE\n" + Path(command[-1]).read_bytes())
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(resilience_readiness.subprocess, "run", fake_age)
+    exit_code = cli.main(
+        [
+            "sqlite-backup-age",
+            "--source",
+            str(source_path),
+            "--backup-path",
+            str(backup_path),
+            "--recipient",
+            "age1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqydm4a",
+            "--staging-dir",
+            str(staging_path),
+            "--manifest-path",
+            str(manifest_path),
+        ]
+    )
+
+    output = json.loads(capsys.readouterr().out)
+    persisted_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert exit_code == 0
+    assert backup_path.read_bytes().startswith(b"AUTOBOT_TEST_AGE\n")
+    assert output["encrypted"] is True
+    assert output["encryption_scheme"] == "age_x25519"
+    assert "recipient" not in output
+    assert output["manifest_path"] == str(manifest_path)
+    assert persisted_manifest["ciphertext_sha256"] == output["ciphertext_sha256"]
+    assert output["paper_capital_allowed"] is False
+    assert output["live_allowed"] is False
+    assert source_path.read_bytes() == before
+    assert list(staging_path.iterdir()) == []
 
 
 def test_cli_sqlite_backup_scope_audit_and_bundle_are_non_authorizing(tmp_path, capsys):

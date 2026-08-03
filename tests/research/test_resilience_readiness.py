@@ -8,6 +8,7 @@ from hashlib import sha256
 import json
 from pathlib import Path
 import sqlite3
+import subprocess
 
 import pytest
 
@@ -23,6 +24,7 @@ from autobot.v2.research.resilience_readiness import (
     RuntimeDeploymentEvidence,
     audit_layer_coverage,
     audit_sqlite_backup_scope,
+    create_age_encrypted_sqlite_backup,
     build_readiness_dossier_from_coverage,
     create_verified_sqlite_backup_bundle,
     create_verified_sqlite_backup,
@@ -34,6 +36,7 @@ from autobot.v2.research.resilience_readiness import (
     runtime_deployment_evidence_from_mapping,
     run_fail_closed_drill,
     run_ephemeral_sqlite_restore_drill,
+    verify_age_encrypted_sqlite_restore_drill,
     summarize_fail_closed_incidents,
     verify_sqlite_backup_bundle_restore_drill,
     verify_sqlite_restore_drill,
@@ -238,6 +241,119 @@ def test_verified_sqlite_backup_can_be_read_and_never_claims_unconfigured_encryp
         create_verified_sqlite_backup(source, source)
     with pytest.raises(ResilienceError, match="refusing to overwrite"):
         create_verified_sqlite_backup(source, destination)
+
+
+def _fake_age_runner(command, **_kwargs):
+    """Deterministic age stand-in: tests the boundary without a local identity."""
+
+    output_path = Path(command[command.index("-o") + 1])
+    input_path = Path(command[-1])
+    source = input_path.read_bytes()
+    if "-d" in command:
+        assert "-i" in command
+        assert source.startswith(b"AUTOBOT_TEST_AGE\n")
+        output_path.write_bytes(source.removeprefix(b"AUTOBOT_TEST_AGE\n"))
+    else:
+        assert "-r" in command
+        output_path.write_bytes(b"AUTOBOT_TEST_AGE\n" + source)
+    return subprocess.CompletedProcess(command, 0)
+
+
+def test_age_encrypted_sqlite_backup_and_restore_are_explicit_and_leave_no_plaintext_staging(tmp_path, monkeypatch):
+    source = tmp_path / "source.sqlite3"
+    _write_sqlite(source, value="preserved")
+    source_before = source.read_bytes()
+    staging = tmp_path / "protected_tmpfs"
+    staging.mkdir()
+    encrypted_backup = tmp_path / "encrypted" / "state.sqlite3.age"
+    recipient = "age1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqydm4a"
+    monkeypatch.setattr(resilience_readiness.subprocess, "run", _fake_age_runner)
+
+    manifest = create_age_encrypted_sqlite_backup(
+        source,
+        encrypted_backup,
+        recipient=recipient,
+        staging_dir=staging,
+    )
+
+    assert encrypted_backup.read_bytes().startswith(b"AUTOBOT_TEST_AGE\n")
+    assert manifest.encrypted is True
+    assert manifest.encryption_scheme == "age_x25519"
+    assert manifest.recipient_fingerprint != recipient
+    assert manifest.plaintext_backup_sha256
+    assert manifest.ciphertext_sha256 == sha256(encrypted_backup.read_bytes()).hexdigest()
+    assert source.read_bytes() == source_before
+    assert list(staging.iterdir()) == []
+
+    identity = tmp_path / "operator-age-identity.txt"
+    identity.write_text("test-age-identity-not-a-production-key", encoding="utf-8")
+    ciphertext_before = encrypted_backup.read_bytes()
+    restore = verify_age_encrypted_sqlite_restore_drill(
+        encrypted_backup,
+        identity_file=identity,
+        expected_plaintext_backup_sha256=manifest.plaintext_backup_sha256,
+        staging_dir=staging,
+    )
+
+    assert restore.restore.integrity_check.lower() == "ok"
+    assert restore.restore.temporary_restore_cleaned is True
+    assert restore.ciphertext_sha256_before == manifest.ciphertext_sha256
+    assert restore.ciphertext_sha256_after == manifest.ciphertext_sha256
+    assert encrypted_backup.read_bytes() == ciphertext_before
+    assert list(staging.iterdir()) == []
+
+
+def test_age_encrypted_sqlite_backup_fails_closed_for_bad_policy_or_age_failure(tmp_path, monkeypatch):
+    source = tmp_path / "source.sqlite3"
+    _write_sqlite(source, value="preserved")
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    recipient = "age1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqydm4a"
+
+    with pytest.raises(ResilienceError, match="public age1 key"):
+        create_age_encrypted_sqlite_backup(
+            source,
+            tmp_path / "bad-recipient.age",
+            recipient="not-a-public-key",
+            staging_dir=staging,
+        )
+    with pytest.raises(ResilienceError, match="must differ from destination"):
+        create_age_encrypted_sqlite_backup(
+            source,
+            tmp_path / "same-directory.age",
+            recipient=recipient,
+            staging_dir=tmp_path,
+        )
+
+    monkeypatch.setattr(
+        resilience_readiness.subprocess,
+        "run",
+        lambda command, **_kwargs: subprocess.CompletedProcess(command, 17),
+    )
+    failed_destination = tmp_path / "failed" / "state.sqlite3.age"
+    with pytest.raises(ResilienceError, match="encryption failed with exit status 17"):
+        create_age_encrypted_sqlite_backup(
+            source,
+            failed_destination,
+            recipient=recipient,
+            staging_dir=staging,
+        )
+    assert not failed_destination.exists()
+    assert list(staging.iterdir()) == []
+
+    monkeypatch.setattr(
+        resilience_readiness.subprocess,
+        "run",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(FileNotFoundError("age")),
+    )
+    with pytest.raises(ResilienceError, match="tool is unavailable"):
+        create_age_encrypted_sqlite_backup(
+            source,
+            tmp_path / "missing-age" / "state.sqlite3.age",
+            recipient=recipient,
+            staging_dir=staging,
+        )
+    assert list(staging.iterdir()) == []
 
 
 def test_sqlite_backup_scope_audit_is_fixed_read_only_and_marks_absent_research_registries_optional(tmp_path):

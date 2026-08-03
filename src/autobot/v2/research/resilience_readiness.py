@@ -15,8 +15,9 @@ import json
 import math
 import os
 from pathlib import Path
-from shutil import rmtree
+from shutil import copyfileobj, rmtree
 import sqlite3
+import subprocess
 from tempfile import TemporaryDirectory, mkdtemp, mkstemp
 from time import sleep
 from typing import Any, Callable, Mapping, Sequence, TypeVar
@@ -416,6 +417,46 @@ class SQLiteBackupManifest:
 
 
 @dataclass(frozen=True)
+class AgeEncryptedSQLiteBackupManifest:
+    """Evidence for an explicit public-key encrypted SQLite backup.
+
+    AUTOBOT never owns an age identity.  Callers provide an age recipient
+    (public key) and retain the corresponding identity outside the runtime.
+    The manifest deliberately records only a one-way recipient fingerprint.
+    """
+
+    source_path: str
+    backup_path: str
+    source_sha256: str
+    plaintext_backup_sha256: str
+    ciphertext_sha256: str
+    recipient_fingerprint: str
+    integrity_check: str
+    foreign_key_violation_count: int
+    encrypted: bool
+    encryption_scheme: str
+    created_at: str
+    research_only: bool = True
+    paper_capital_allowed: bool = False
+    live_allowed: bool = False
+
+    def __post_init__(self) -> None:
+        if self.encrypted is not True or self.encryption_scheme != "age_x25519":
+            raise ResilienceError("encrypted SQLite backup must use explicit age_x25519 encryption")
+        for field_name in (
+            "source_sha256",
+            "plaintext_backup_sha256",
+            "ciphertext_sha256",
+            "recipient_fingerprint",
+        ):
+            if not _is_sha256(str(getattr(self, field_name))):
+                raise ResilienceError(f"encrypted SQLite backup requires {field_name}")
+        if self.research_only is not True or self.paper_capital_allowed or self.live_allowed:
+            raise ResilienceError("encrypted SQLite backups cannot authorize paper or live")
+        _parse_aware_utc(self.created_at, "created_at")
+
+
+@dataclass(frozen=True)
 class SQLiteBackupScopeEntry:
     """One fixed, non-secret SQLite source included in the resilience scope."""
 
@@ -610,6 +651,35 @@ class SQLiteRestoreDrillManifest:
     research_only: bool = True
     paper_capital_allowed: bool = False
     live_allowed: bool = False
+
+
+@dataclass(frozen=True)
+class AgeEncryptedSQLiteRestoreDrillManifest:
+    """Evidence from a disposable restore of an age-encrypted SQLite backup."""
+
+    backup_path: str
+    ciphertext_sha256_before: str
+    ciphertext_sha256_after: str
+    plaintext_backup_sha256: str
+    restore: SQLiteRestoreDrillManifest
+    verified_at: str
+    research_only: bool = True
+    paper_capital_allowed: bool = False
+    live_allowed: bool = False
+
+    def __post_init__(self) -> None:
+        for field_name in (
+            "ciphertext_sha256_before",
+            "ciphertext_sha256_after",
+            "plaintext_backup_sha256",
+        ):
+            if not _is_sha256(str(getattr(self, field_name))):
+                raise ResilienceError(f"encrypted SQLite restore drill requires {field_name}")
+        if self.ciphertext_sha256_before != self.ciphertext_sha256_after:
+            raise ResilienceError("encrypted SQLite restore drill modified its ciphertext input")
+        if self.research_only is not True or self.paper_capital_allowed or self.live_allowed:
+            raise ResilienceError("encrypted SQLite restore drills cannot authorize paper or live")
+        _parse_aware_utc(self.verified_at, "verified_at")
 
 
 @dataclass(frozen=True)
@@ -1100,6 +1170,130 @@ def create_verified_sqlite_backup(
         encrypted=False,
         created_at=datetime.now(timezone.utc).isoformat(),
     )
+
+
+def create_age_encrypted_sqlite_backup(
+    source: str | Path,
+    destination: str | Path,
+    *,
+    recipient: str,
+    staging_dir: str | Path,
+    age_binary: str = "age",
+    timeout_seconds: float = 60.0,
+) -> AgeEncryptedSQLiteBackupManifest:
+    """Create a verified SQLite snapshot and encrypt it with an age public key.
+
+    The plaintext snapshot only exists in the caller-provided staging directory
+    for the duration of this function.  That directory is an explicit operator
+    policy boundary (for example a protected tmpfs); AUTOBOT never assumes a
+    local filesystem is encrypted and never stores an age identity.
+    """
+
+    source_path = Path(source).resolve()
+    destination_path = Path(destination).resolve()
+    staging_path = _validated_backup_staging_dir(staging_dir, destination_path.parent)
+    normalized_recipient = _validated_age_recipient(recipient)
+    normalized_binary = _validated_age_binary(age_binary)
+    _validate_age_timeout(timeout_seconds)
+    if not source_path.is_file():
+        raise ResilienceError("SQLite backup source does not exist")
+    if source_path == destination_path:
+        raise ResilienceError("SQLite backup destination must differ from its source")
+    if destination_path.exists():
+        raise ResilienceError("SQLite backup destination already exists; refusing to overwrite it")
+    destination_path.parent.mkdir(parents=True, exist_ok=True)
+
+    plaintext_path = _unlinked_temporary_path(staging_path, suffix=".sqlite3")
+    staged_ciphertext_path = _unlinked_temporary_path(staging_path, suffix=".age")
+    destination_ciphertext_path = _unlinked_temporary_path(destination_path.parent, suffix=".age")
+    try:
+        plaintext = create_verified_sqlite_backup(source_path, plaintext_path)
+        _run_age_command(
+            (normalized_binary, "-r", normalized_recipient, "-o", str(staged_ciphertext_path), str(plaintext_path)),
+            timeout_seconds=timeout_seconds,
+            operation="encryption",
+        )
+        if not staged_ciphertext_path.is_file() or staged_ciphertext_path.stat().st_size <= 0:
+            raise ResilienceError("age encryption did not produce a ciphertext backup")
+        _sync_file_to_disk(staged_ciphertext_path)
+        _copy_private_file(staged_ciphertext_path, destination_ciphertext_path)
+        _sync_file_to_disk(destination_ciphertext_path)
+        try:
+            os.link(destination_ciphertext_path, destination_path)
+        except FileExistsError as exc:
+            raise ResilienceError("SQLite backup destination already exists; refusing to overwrite it") from exc
+        _sync_directory_to_disk(destination_path.parent)
+        return AgeEncryptedSQLiteBackupManifest(
+            source_path=str(source_path),
+            backup_path=str(destination_path),
+            source_sha256=plaintext.source_sha256,
+            plaintext_backup_sha256=plaintext.backup_sha256,
+            ciphertext_sha256=_sha256_file(destination_path),
+            recipient_fingerprint=_age_recipient_fingerprint(normalized_recipient),
+            integrity_check=plaintext.integrity_check,
+            foreign_key_violation_count=plaintext.foreign_key_violation_count,
+            encrypted=True,
+            encryption_scheme="age_x25519",
+            created_at=datetime.now(timezone.utc).isoformat(),
+        )
+    finally:
+        _remove_sqlite_artifacts(plaintext_path)
+        _remove_private_file(staged_ciphertext_path)
+        _remove_private_file(destination_ciphertext_path)
+
+
+def verify_age_encrypted_sqlite_restore_drill(
+    backup: str | Path,
+    *,
+    identity_file: str | Path,
+    expected_plaintext_backup_sha256: str,
+    staging_dir: str | Path,
+    age_binary: str = "age",
+    timeout_seconds: float = 60.0,
+) -> AgeEncryptedSQLiteRestoreDrillManifest:
+    """Decrypt to disposable staging and verify the original SQLite snapshot.
+
+    The caller supplies an externally managed age identity file.  Its contents,
+    path and age command output are intentionally absent from returned evidence.
+    """
+
+    backup_path = Path(backup).resolve()
+    identity_path = Path(identity_file).resolve()
+    staging_path = _validated_backup_staging_dir(staging_dir, backup_path.parent)
+    normalized_binary = _validated_age_binary(age_binary)
+    _validate_age_timeout(timeout_seconds)
+    if not backup_path.is_file():
+        raise ResilienceError("encrypted SQLite backup does not exist")
+    if not identity_path.is_file():
+        raise ResilienceError("age identity file does not exist")
+    expected_sha256 = str(expected_plaintext_backup_sha256).strip().lower()
+    if not _is_sha256(expected_sha256):
+        raise ResilienceError("encrypted SQLite restore drill requires expected plaintext backup SHA-256")
+
+    plaintext_path = _unlinked_temporary_path(staging_path, suffix=".sqlite3")
+    ciphertext_sha256_before = _sha256_file(backup_path)
+    try:
+        _run_age_command(
+            (normalized_binary, "-d", "-i", str(identity_path), "-o", str(plaintext_path), str(backup_path)),
+            timeout_seconds=timeout_seconds,
+            operation="decryption",
+        )
+        if not plaintext_path.is_file() or plaintext_path.stat().st_size <= 0:
+            raise ResilienceError("age decryption did not produce a SQLite snapshot")
+        if _sha256_file(plaintext_path) != expected_sha256:
+            raise ResilienceError("decrypted SQLite snapshot fingerprint does not match its backup manifest")
+        restore = verify_sqlite_restore_drill(plaintext_path)
+        ciphertext_sha256_after = _sha256_file(backup_path)
+        return AgeEncryptedSQLiteRestoreDrillManifest(
+            backup_path=str(backup_path),
+            ciphertext_sha256_before=ciphertext_sha256_before,
+            ciphertext_sha256_after=ciphertext_sha256_after,
+            plaintext_backup_sha256=expected_sha256,
+            restore=restore,
+            verified_at=datetime.now(timezone.utc).isoformat(),
+        )
+    finally:
+        _remove_private_file(plaintext_path)
 
 
 def verify_sqlite_restore_drill(backup: str | Path) -> SQLiteRestoreDrillManifest:
@@ -1601,6 +1795,89 @@ def _sha256_file(path: Path) -> str:
         for block in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def _validated_backup_staging_dir(staging_dir: str | Path, destination_parent: Path) -> Path:
+    staging_path = Path(staging_dir).resolve()
+    if not staging_path.is_dir():
+        raise ResilienceError("encrypted SQLite backup staging directory does not exist")
+    if staging_path == destination_parent.resolve():
+        raise ResilienceError("encrypted SQLite backup staging directory must differ from destination directory")
+    return staging_path
+
+
+def _validated_age_recipient(value: str) -> str:
+    recipient = str(value).strip()
+    if (
+        len(recipient) < 20
+        or len(recipient) > 256
+        or not recipient.startswith("age1")
+        or any(character.isspace() or ord(character) < 32 for character in recipient)
+    ):
+        raise ResilienceError("age recipient must be one explicit public age1 key")
+    return recipient
+
+
+def _validated_age_binary(value: str) -> str:
+    binary = str(value).strip()
+    if not binary or "\x00" in binary:
+        raise ResilienceError("age binary is required")
+    return binary
+
+
+def _validate_age_timeout(value: float) -> None:
+    if not math.isfinite(float(value)) or float(value) <= 0.0 or float(value) > 300.0:
+        raise ResilienceError("age command timeout must be between zero and 300 seconds")
+
+
+def _age_recipient_fingerprint(recipient: str) -> str:
+    return sha256(f"autobot-age-recipient-v1:{recipient}".encode("utf-8")).hexdigest()
+
+
+def _unlinked_temporary_path(directory: Path, *, suffix: str) -> Path:
+    descriptor, temporary_name = mkstemp(prefix=".autobot-age-", suffix=suffix, dir=directory)
+    os.close(descriptor)
+    temporary_path = Path(temporary_name)
+    try:
+        temporary_path.unlink()
+    except OSError as exc:
+        raise ResilienceError("could not prepare encrypted SQLite backup staging path") from exc
+    return temporary_path
+
+
+def _run_age_command(command: Sequence[str], *, timeout_seconds: float, operation: str) -> None:
+    try:
+        result = subprocess.run(
+            list(command),
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=float(timeout_seconds),
+        )
+    except FileNotFoundError as exc:
+        raise ResilienceError("age encryption tool is unavailable") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise ResilienceError(f"age {operation} timed out") from exc
+    except OSError as exc:
+        raise ResilienceError(f"age {operation} could not start") from exc
+    if result.returncode != 0:
+        raise ResilienceError(f"age {operation} failed with exit status {result.returncode}")
+
+
+def _copy_private_file(source: Path, destination: Path) -> None:
+    try:
+        with source.open("rb") as input_handle, destination.open("xb") as output_handle:
+            copyfileobj(input_handle, output_handle, length=1024 * 1024)
+            output_handle.flush()
+            os.fsync(output_handle.fileno())
+    except FileExistsError as exc:
+        raise ResilienceError("encrypted SQLite backup staging destination already exists") from exc
+    except OSError as exc:
+        raise ResilienceError("could not stage encrypted SQLite backup ciphertext") from exc
+
+
+def _remove_private_file(path: Path) -> None:
+    path.unlink(missing_ok=True)
 
 
 def _sync_file_to_disk(path: Path) -> None:
