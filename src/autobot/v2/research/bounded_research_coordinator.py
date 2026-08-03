@@ -42,6 +42,8 @@ from .manifested_experiment import (
     FeatureSnapshotProvenance,
     ManifestedExperimentError,
     build_manifested_experiment_spec,
+    load_feature_snapshot_provenance,
+    scope_data_paths_to_feature_snapshot,
 )
 
 
@@ -182,7 +184,7 @@ def run_bounded_research_coordinator(
         )
 
     try:
-        template, hypothesis, spec, provenance = _build_material_experiment(
+        template, hypothesis, spec, provenance, scoped_data_paths = _build_material_experiment(
             config=config,
             hypothesis_id=selected.hypothesis_id,
             template_id=selected.template_id,
@@ -263,7 +265,7 @@ def run_bounded_research_coordinator(
                     templates_path=config.scheduler.templates_path,
                     template_id=selected.template_id,
                     state_db=None,
-                    data_paths=config.scheduler.data_paths,
+                    data_paths=scoped_data_paths,
                     output_dir=config.output_dir / "runner",
                     symbols=symbols,
                     cost_profile=str(template["expected_cost_model"]),
@@ -395,7 +397,7 @@ def _build_material_experiment(
     config: BoundedResearchCoordinatorConfig,
     hypothesis_id: str,
     template_id: str,
-) -> tuple[dict[str, Any], dict[str, Any], Any, FeatureSnapshotProvenance]:
+) -> tuple[dict[str, Any], dict[str, Any], Any, FeatureSnapshotProvenance, tuple[Path, ...]]:
     resolved_hypothesis_id = canonical_hypothesis_id(hypothesis_id)
     templates = load_strategy_templates(config.scheduler.templates_path)
     template = next(
@@ -430,6 +432,11 @@ def _build_material_experiment(
     max_variants = min(config.scheduler.max_variants, int(template["max_variants"]))
     max_symbols = min(config.scheduler.max_symbols, int(template["max_symbols"]))
     symbols = _bounded_symbols(hypothesis, maximum=max_symbols)
+    feature_provenance = load_feature_snapshot_provenance(config.feature_snapshot_manifest)
+    scoped_data_paths = scope_data_paths_to_feature_snapshot(
+        config.scheduler.data_paths,
+        source_snapshot_id=feature_provenance.source_snapshot_id,
+    )
     spec, provenance = build_manifested_experiment_spec(
         hypothesis_id=resolved_hypothesis_id,
         template_id=template_id,
@@ -448,7 +455,7 @@ def _build_material_experiment(
         seed=config.seed,
         cost_model={"profile": str(template["expected_cost_model"])},
         environment={
-            "data_paths": [str(path) for path in config.scheduler.data_paths],
+            "data_paths": [str(path) for path in scoped_data_paths],
             "scheduler_run_id": config.scheduler.run_id,
             **RESEARCH_ONLY_CAPITAL_FLAGS,
         },
@@ -456,7 +463,7 @@ def _build_material_experiment(
     )
     if not provenance.runtime_parity_proven:
         raise ManifestedExperimentError("runtime parity must be proven before automated research smoke")
-    return template, hypothesis, spec, provenance
+    return template, hypothesis, spec, provenance, scoped_data_paths
 
 
 def _bounded_symbols(hypothesis: Mapping[str, Any], *, maximum: int) -> tuple[str, ...]:

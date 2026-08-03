@@ -325,7 +325,7 @@ def _feature_manifest(path_root: Path, **overrides: object) -> Path:
 
 
 def _write_ohlcv(tmp_path: Path) -> Path:
-    data_dir = tmp_path / "ohlcv"
+    data_dir = tmp_path / "source-test"
     data_dir.mkdir()
     start = datetime(2026, 1, 1, tzinfo=timezone.utc)
     for symbol in ("BTCZEUR", "ETHZEUR"):

@@ -10,6 +10,7 @@ from autobot.v2.research.manifested_experiment import (
     ManifestedExperimentError,
     build_manifested_experiment_spec,
     load_feature_snapshot_provenance,
+    scope_data_paths_to_feature_snapshot,
 )
 from autobot.v2.research.canonical_feature_snapshot import CanonicalFeatureSnapshotConfig, build_canonical_feature_snapshot
 from autobot.v2.research.holdout_partition import HoldoutPartitionConfig, materialize_holdout_partition
@@ -120,6 +121,25 @@ def test_manifested_experiment_binds_all_feature_and_source_fingerprints(tmp_pat
     assert spec.environment["runtime_parity_proven"] is True
     assert spec.research_campaign_id == "family_trend_momentum"
     assert provenance.runtime_parity_proven is True
+
+
+def test_data_paths_are_narrowed_to_the_feature_manifest_source_snapshot(tmp_path):
+    root = tmp_path / "canonical" / "ohlcv"
+    expected = root / "ohlcv_v2_test"
+    expected.mkdir(parents=True)
+    (root / "ohlcv_v2_other").mkdir()
+
+    scoped = scope_data_paths_to_feature_snapshot((root,), source_snapshot_id="ohlcv_v2_test")
+
+    assert scoped == (expected,)
+
+
+def test_data_paths_fail_closed_when_the_manifest_source_snapshot_is_not_present(tmp_path):
+    root = tmp_path / "canonical" / "ohlcv"
+    root.mkdir(parents=True)
+
+    with pytest.raises(ManifestedExperimentError, match="must resolve to manifested source snapshot"):
+        scope_data_paths_to_feature_snapshot((root,), source_snapshot_id="ohlcv_v2_test")
 
 
 def test_manifested_experiment_refuses_unready_or_unproven_feature_snapshot(tmp_path):

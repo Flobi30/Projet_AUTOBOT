@@ -2698,6 +2698,7 @@ def _cmd_alpha_hypothesis_runner(args: argparse.Namespace) -> int:
         hypothesis_id=args.hypothesis_id,
         code_commit=pre_run_commit,
     )
+    resolved_data_paths = tuple(pre_run_context.get("data_paths") or data_paths)
     if pre_run_context and pre_run_context.get("state") and pre_run_context["state"].terminal:
         state = pre_run_context["state"]
         _print_json(
@@ -2731,7 +2732,7 @@ def _cmd_alpha_hypothesis_runner(args: argparse.Namespace) -> int:
                 templates_path=Path(args.templates),
                 template_id=args.template_id,
                 state_db=Path(args.state_db) if args.state_db else None,
-                data_paths=data_paths,
+                data_paths=resolved_data_paths,
                 output_dir=Path(args.output_dir),
                 symbols=_csv_tuple(args.symbols, "--symbols", uppercase=True),
                 cost_profile=args.cost_profile,
@@ -2889,7 +2890,11 @@ def _prepare_alpha_experiment_context(
         HoldoutPartitionError,
         verify_holdout_partition,
     )
-    from autobot.v2.research.manifested_experiment import build_manifested_experiment_spec
+    from autobot.v2.research.manifested_experiment import (
+        build_manifested_experiment_spec,
+        load_feature_snapshot_provenance,
+        scope_data_paths_to_feature_snapshot,
+    )
 
     resolved_hypothesis_id = canonical_hypothesis_id(hypothesis_id)
     templates = load_strategy_templates(args.templates)
@@ -2918,6 +2923,12 @@ def _prepare_alpha_experiment_context(
         if derivatives_availability.status != "READY":
             return {"derivatives_availability": derivatives_availability}
 
+    feature_provenance = load_feature_snapshot_provenance(Path(args.feature_snapshot_manifest))
+    scoped_data_paths = scope_data_paths_to_feature_snapshot(
+        data_paths,
+        source_snapshot_id=feature_provenance.source_snapshot_id,
+    )
+
     timeframes = _optional_csv_tuple(args.trial_timeframes, "--trial-timeframes")
     regimes = _optional_csv_tuple(args.trial_regimes, "--trial-regimes")
     symbols = _csv_tuple(args.symbols, "--symbols", uppercase=True)
@@ -2927,7 +2938,7 @@ def _prepare_alpha_experiment_context(
             holdout_partition = verify_holdout_partition(
                 Path(args.holdout_partition_manifest),
                 role=OPTIMIZATION_ROLE,
-                data_paths=data_paths,
+                data_paths=scoped_data_paths,
             )
         except HoldoutPartitionError as exc:
             raise ValueError(f"invalid optimization holdout partition: {exc}") from exc
@@ -2953,7 +2964,7 @@ def _prepare_alpha_experiment_context(
         },
         seed=args.experiment_seed,
         cost_model={"profile": args.cost_profile},
-        environment={"data_paths": [str(path) for path in data_paths]},
+        environment={"data_paths": [str(path) for path in scoped_data_paths]},
         holdout_id=args.holdout_id,
         holdout_partition_manifest=(
             Path(args.holdout_partition_manifest) if args.holdout_partition_manifest else None
@@ -2989,6 +3000,7 @@ def _prepare_alpha_experiment_context(
         "validation_trial_scope_id": spec.research_campaign_id or f"hypothesis_{spec.hypothesis_id}",
         "derivatives_availability": derivatives_availability,
         "holdout_partition": holdout_partition,
+        "data_paths": scoped_data_paths,
     }
 
 

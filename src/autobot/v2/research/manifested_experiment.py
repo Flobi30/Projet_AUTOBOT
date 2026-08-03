@@ -12,7 +12,7 @@ import json
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from .experiment_registry import ExperimentSpec
 
@@ -147,6 +147,47 @@ def load_feature_snapshot_provenance(path: str | Path) -> FeatureSnapshotProvena
         holdout_partition=(dict(raw_holdout_partition) if isinstance(raw_holdout_partition, Mapping) else None),
         holdout_partition_role=holdout_partition_role,
     )
+
+
+def scope_data_paths_to_feature_snapshot(
+    data_paths: Sequence[str | Path],
+    *,
+    source_snapshot_id: str,
+) -> tuple[Path, ...]:
+    """Resolve experiment inputs to the one snapshot named by its manifest.
+
+    Passing a canonical root containing historical snapshots would mix
+    overlapping bars.  A root is narrowed to the declared child snapshot; an
+    already-scoped directory or CSV is accepted unchanged.  Unknown inputs
+    fail closed rather than weakening provenance or duplicate checks.
+    """
+
+    expected = str(source_snapshot_id or "").strip()
+    if not expected:
+        raise ManifestedExperimentError("feature snapshot source_snapshot_id is required for data scoping")
+    if not data_paths:
+        return ()
+
+    scoped: list[Path] = []
+    invalid: list[str] = []
+    for raw_path in data_paths:
+        path = Path(raw_path)
+        if expected in path.parts:
+            candidate = path
+        elif path.is_dir() and (path / expected).is_dir():
+            candidate = path / expected
+        else:
+            invalid.append(str(path))
+            continue
+        if candidate not in scoped:
+            scoped.append(candidate)
+
+    if invalid:
+        raise ManifestedExperimentError(
+            "data paths must resolve to manifested source snapshot "
+            f"{expected}: {', '.join(invalid)}"
+        )
+    return tuple(scoped)
 
 
 def build_manifested_experiment_spec(
