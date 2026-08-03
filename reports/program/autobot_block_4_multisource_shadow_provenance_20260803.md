@@ -27,6 +27,9 @@ git diff --check
 
 Résultat : `97 passed`; compilation et contrôle du diff réussis.
 
+La suite complète a ensuite été collectée sans erreur (`2 104` tests) et
+exécutée sur le commit `49d1184` : `2 098 passed, 6 skipped, 2 deselected`.
+
 ## Invariants
 
 - Aucun routeur, executor, paper engine ou client Kraken privé n'est importé par le binder.
