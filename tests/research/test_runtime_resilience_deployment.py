@@ -42,6 +42,7 @@ def test_runtime_resilience_audit_systemd_timer_is_isolated_and_operational_only
     timer = _deployment_file("autobot-runtime-resilience-audit.timer")
 
     assert "Environment=AUTOBOT_RUNTIME_RESILIENCE_AUDIT_ENABLED=true" in service
+    assert "Environment=AUTOBOT_RUNTIME_RESILIENCE_MIN_FREE_DISK_BYTES=17179869184" in service
     assert "Environment=AUTOBOT_RUNTIME_RESILIENCE_HEALTH_WAIT_SECONDS=45" in service
     assert "Environment=AUTOBOT_RUNTIME_RESILIENCE_MAX_WEBSOCKET_AGE_SECONDS=60" in service
     assert "NoNewPrivileges=true" in service

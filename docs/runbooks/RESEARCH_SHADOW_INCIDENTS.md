@@ -52,6 +52,35 @@ current health evidence.
 | SQLite corruption, disk full, unknown order, or reconciliation required | `HALT` | Treat persistence or position state as untrusted. Do not resume strategy processing until an independent review completes. |
 | Container restart | `BLOCK_NEW_ORDERS` | Re-check health, data freshness, ledger evidence and reconciliation before considering any future execution state. |
 
+### Host storage pressure
+
+The routine resilience audit treats less than **16 GiB** free on the runtime
+filesystem as `DISK_FULL` for the future risk envelope.  The controlled image
+rebuild helper enforces the same minimum before Docker can allocate new build
+layers.  Neither check deletes anything automatically.
+
+When this condition occurs, first confirm that no AUTOBOT rebuild or isolated
+research collector is active.  Then inspect the host without printing any
+environment values or secrets:
+
+```text
+df -h /
+docker system df
+journalctl --disk-usage
+```
+
+If Docker reports old, unused build cache, the bounded maintenance action is:
+
+```text
+docker builder prune --all --force --filter 'until=168h'
+docker container prune --force --filter 'until=168h'
+```
+
+This keeps cache used during the last seven days and does not stop a running
+container.  Do **not** delete paths below `/var/lib/containerd` or
+`/var/lib/docker` manually.  After maintenance, capture deployment evidence
+again and keep the programme execution lock, paper lock and live lock intact.
+
 ## SQLite recovery evidence
 
 The routine restore drill is deliberately ephemeral: it opens the runtime

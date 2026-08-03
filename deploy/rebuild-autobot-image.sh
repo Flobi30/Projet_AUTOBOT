@@ -10,6 +10,12 @@ set -euo pipefail
 # live execution flags.
 
 REPO_DIR="${AUTOBOT_REPO_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+# A provenance build must fail before Docker allocates layers when the host is
+# already under disk pressure.  This is deliberately a preflight only: it
+# never prunes images, build cache or research data as a side effect of a
+# deployment.  An operator must use the bounded maintenance procedure in the
+# incident runbook after confirming that no build is running.
+MIN_FREE_DISK_BYTES="${AUTOBOT_DEPLOY_MIN_FREE_DISK_BYTES:-17179869184}"
 BUILD_INPUT_PATHS=(
   Dockerfile
   Dockerfile.pypy
@@ -22,6 +28,22 @@ BUILD_INPUT_PATHS=(
   docs/research
   docs/architecture
 )
+
+if ! [[ "${MIN_FREE_DISK_BYTES}" =~ ^[0-9]+$ ]]; then
+  echo "AUTOBOT_DEPLOY_MIN_FREE_DISK_BYTES must be a non-negative integer." >&2
+  exit 1
+fi
+
+AVAILABLE_DISK_BYTES="$(df --output=avail -B1 "${REPO_DIR}" | tail -n 1 | tr -d '[:space:]')"
+if ! [[ "${AVAILABLE_DISK_BYTES}" =~ ^[0-9]+$ ]]; then
+  echo "Refusing AUTOBOT build: unable to determine available disk space." >&2
+  exit 1
+fi
+if (( AVAILABLE_DISK_BYTES < MIN_FREE_DISK_BYTES )); then
+  echo "Refusing AUTOBOT build: available disk space (${AVAILABLE_DISK_BYTES} bytes) is below the required minimum (${MIN_FREE_DISK_BYTES} bytes)." >&2
+  echo "Run the bounded host-storage procedure from docs/runbooks/RESEARCH_SHADOW_INCIDENTS.md; do not delete containerd files directly." >&2
+  exit 1
+fi
 
 if ! git -C "${REPO_DIR}" diff --quiet -- "${BUILD_INPUT_PATHS[@]}" \
   || ! git -C "${REPO_DIR}" diff --cached --quiet -- "${BUILD_INPUT_PATHS[@]}"; then
