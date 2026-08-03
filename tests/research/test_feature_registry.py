@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from autobot.v2.research import feature_registry as feature_registry_module
 from autobot.v2.contracts import MarketIdentity
 from autobot.v2.research.feature_registry import (
     DATA_MISSING,
@@ -199,6 +200,34 @@ def test_feature_registry_replays_large_single_ingestion_batch_without_lookahead
     )
 
     assert parity.feature_count == 5_000
+    assert parity.parity_ok is True
+
+
+def test_feature_registry_replays_long_monotonic_history_without_global_remerge(monkeypatch):
+    start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    rows = [
+        {
+            "event_time": (start + timedelta(minutes=index)).isoformat(),
+            "available_time": (start + timedelta(minutes=index + 1)).isoformat(),
+            "close": str(100 + index),
+        }
+        for index in range(2_000)
+    ]
+    registry = FeatureRegistry((FeatureDefinition("return_1", "1", "canonical_ohlcv", "return_bps"),))
+
+    def _global_remerge_must_not_run(*_args, **_kwargs):
+        pytest.fail("monotonic replay must retain only a bounded feature window")
+
+    monkeypatch.setattr(feature_registry_module, "_merge_sorted_indices", _global_remerge_must_not_run)
+    parity = validate_historical_shadow_parity(
+        rows=rows,
+        market=_market(),
+        timeframe="1m",
+        source_snapshot_id="long-monotonic-replay",
+        registry=registry,
+    )
+
+    assert parity.feature_count == len(rows)
     assert parity.parity_ok is True
 
 

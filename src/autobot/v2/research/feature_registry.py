@@ -8,6 +8,7 @@ research and shadow replays so feature definitions cannot silently diverge.
 from __future__ import annotations
 
 from bisect import bisect_right
+from collections import deque
 import hashlib
 from itertools import zip_longest
 import json
@@ -188,6 +189,37 @@ class FeatureRegistry:
         cutoff = _utc(as_of_time) if as_of_time else None
         normalized = _normalize_rows(rows)
         max_lookback = max((definition.lookback for definition in definitions), default=1)
+        # Canonical collector histories are normally ordered both by event
+        # time and by effective availability. In that common case a replay
+        # needs only the same bounded window as batch computation. Retaining
+        # and re-merging every earlier event position makes a long sequential
+        # history quadratic, even though no later event can affect a target.
+        # Keep the general out-of-order algorithm below for delayed streams.
+        if _event_times_are_monotonic(normalized):
+            published: deque[dict[str, Any]] = deque(maxlen=max_lookback + 1)
+            index = 0
+            while index < len(normalized):
+                available_time = normalized[index]["available_time"]
+                if cutoff and available_time > cutoff:
+                    break
+                group_end = index + 1
+                while group_end < len(normalized) and normalized[group_end]["available_time"] == available_time:
+                    group_end += 1
+                for row_index in range(index, group_end):
+                    target = normalized[row_index]
+                    published.append(target)
+                    observed = list(published)
+                    for definition in definitions:
+                        yield _compute_feature(
+                            definition,
+                            observed=observed,
+                            target=target,
+                            market=market,
+                            timeframe=timeframe,
+                            source_snapshot_id=source_snapshot_id,
+                        )
+                index = group_end
+            return
         # A historical backfill commonly becomes available in one ingestion
         # batch.  Searching every previously published row per target makes
         # that normal case quadratic.  Keep one event-time index of currently
