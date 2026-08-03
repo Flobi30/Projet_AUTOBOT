@@ -10,6 +10,7 @@ set -euo pipefail
 # live execution flags.
 
 REPO_DIR="${AUTOBOT_REPO_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+START_AFTER_BUILD="${AUTOBOT_REBUILD_START:-true}"
 # A provenance build must fail before Docker allocates layers when the host is
 # already under disk pressure.  This is deliberately a preflight only: it
 # never prunes images, build cache or research data as a side effect of a
@@ -28,6 +29,11 @@ BUILD_INPUT_PATHS=(
   docs/research
   docs/architecture
 )
+
+if [[ "${START_AFTER_BUILD}" != "true" && "${START_AFTER_BUILD}" != "false" ]]; then
+  echo "AUTOBOT_REBUILD_START must be true or false." >&2
+  exit 1
+fi
 
 if ! [[ "${MIN_FREE_DISK_BYTES}" =~ ^[0-9]+$ ]]; then
   echo "AUTOBOT_DEPLOY_MIN_FREE_DISK_BYTES must be a non-negative integer." >&2
@@ -66,6 +72,11 @@ IMAGE_COMMIT="$(docker image inspect --format '{{ index .Config.Labels "org.open
 if [[ "${IMAGE_COMMIT}" != "${SOURCE_COMMIT}" ]]; then
   echo "AUTOBOT image provenance verification failed after build." >&2
   exit 1
+fi
+
+if [[ "${START_AFTER_BUILD}" == "false" ]]; then
+  echo "AUTOBOT image built with commit ${SOURCE_COMMIT}; runtime start intentionally deferred."
+  exit 0
 fi
 
 EXPECTED_IMAGE_ID="$(docker image inspect --format '{{.Id}}' projet_autobot-autobot 2>/dev/null || true)"
