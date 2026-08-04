@@ -11,7 +11,9 @@ SQLite a donc refusé l'ouverture de la base dans ce conteneur hermétique.
 ## Correction
 
 - `ResearchMemoryStore(read_only=True)` ouvre la base via l'URI SQLite
-  `mode=ro`, ne crée aucun schéma et ne change aucun mode de journalisation.
+  `mode=ro&immutable=1`, ne crée aucun schéma, lock ou fichier WAL latéral et
+  ne change aucun mode de journalisation. Cette option est réservée aux
+  snapshots bind-mountés immuables des lecteurs isolés.
 - Les lecteurs non mutables — planificateur d'hypothèses, scanner de capacité
   et contrôle d'éligibilité à un nouvel essai — utilisent ce mode explicite.
 - Toute tentative d'append avec ce lecteur échoue explicitement.

@@ -130,8 +130,11 @@ class ResearchMemoryStore:
         if self._read_only:
             if not self.path.is_file():
                 raise FileNotFoundError(f"research memory SQLite database is unavailable: {self.path}")
+            # Isolated report consumers mount a completed research snapshot
+            # read-only. ``immutable=1`` prevents SQLite from creating a WAL
+            # shared-memory sidecar beside that bind mount.
             connection = sqlite3.connect(
-                f"{self.path.resolve().as_uri()}?mode=ro",
+                f"{self.path.resolve().as_uri()}?mode=ro&immutable=1",
                 uri=True,
                 timeout=self._sqlite_timeout_seconds,
             )
