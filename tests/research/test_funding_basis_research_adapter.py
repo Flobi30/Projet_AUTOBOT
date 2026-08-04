@@ -150,6 +150,11 @@ def test_availability_reports_short_forward_history_without_generating_trades(tm
 
     assert availability.available is False
     assert availability.status == "WAITING_FOR_MORE_DATA"
+    assert availability.feature_observation_counts_by_futures_symbol == {
+        "PF_XBTUSD": {"funding_rate_relative": 9, "basis_bps": 9}
+    }
+    assert availability.minimum_funding_observations == 10
+    assert availability.minimum_signal_eligible_bars == 30
     assert availability.blockers == ("derivatives_history_insufficient:BTCZEUR",)
 
 

@@ -109,6 +109,11 @@ class FundingBasisAvailability:
     spot_row_count: int
     derivatives_feature_count: int
     signal_eligible_bars_by_symbol: Mapping[str, int] = field(default_factory=dict)
+    feature_observation_counts_by_futures_symbol: Mapping[str, Mapping[str, int]] = field(
+        default_factory=dict
+    )
+    minimum_funding_observations: int = 0
+    minimum_signal_eligible_bars: int = 0
     blockers: tuple[str, ...] = ()
     warnings: tuple[str, ...] = ()
 
@@ -117,6 +122,10 @@ class FundingBasisAvailability:
             **asdict(self),
             "futures_to_spot": dict(self.futures_to_spot),
             "signal_eligible_bars_by_symbol": dict(self.signal_eligible_bars_by_symbol),
+            "feature_observation_counts_by_futures_symbol": {
+                symbol: dict(counts)
+                for symbol, counts in self.feature_observation_counts_by_futures_symbol.items()
+            },
         }
 
 
@@ -345,6 +354,8 @@ def _load_funding_basis_research_inputs(
             futures_to_spot={},
             spot_row_count=len(spot_bars),
             derivatives_feature_count=0,
+            minimum_funding_observations=config.min_funding_observations,
+            minimum_signal_eligible_bars=config.min_signal_eligible_bars,
             blockers=(f"derivatives_snapshot_invalid:{exc}",),
         )
         observations = {}
@@ -368,6 +379,8 @@ def _build_availability(
                 futures_to_spot={},
                 spot_row_count=len(spot_bars),
                 derivatives_feature_count=snapshot.feature_count,
+                minimum_funding_observations=config.min_funding_observations,
+                minimum_signal_eligible_bars=config.min_signal_eligible_bars,
                 blockers=tuple(snapshot.blockers or (f"derivatives_snapshot_{snapshot.status.lower()}",)),
             ),
             {},
@@ -387,6 +400,8 @@ def _build_availability(
                 futures_to_spot={},
                 spot_row_count=len(spot_bars),
                 derivatives_feature_count=snapshot.feature_count,
+                minimum_funding_observations=config.min_funding_observations,
+                minimum_signal_eligible_bars=config.min_signal_eligible_bars,
                 blockers=tuple(blockers),
             ),
             {},
@@ -404,6 +419,7 @@ def _build_availability(
     selected_symbols = tuple(sorted(set(futures_to_spot.values())))
     blockers: list[str] = []
     signal_eligible_bars_by_symbol: dict[str, int] = {}
+    feature_observation_counts_by_futures_symbol: dict[str, dict[str, int]] = {}
     if duplicate_count:
         blockers.append("spot_ohlcv_duplicates")
     if not selected_symbols:
@@ -420,6 +436,10 @@ def _build_availability(
         basis = observations.get(futures_symbol, {}).get("basis_bps", ())
         funding_count = len(funding)
         basis_count = len(basis)
+        feature_observation_counts_by_futures_symbol[futures_symbol] = {
+            "funding_rate_relative": funding_count,
+            "basis_bps": basis_count,
+        }
         if funding_count < config.min_funding_observations or not basis_count:
             blockers.append(f"derivatives_history_insufficient:{spot_symbol}")
             continue
@@ -447,6 +467,9 @@ def _build_availability(
                 len(rows) for features in observations.values() for rows in features.values()
             ),
             signal_eligible_bars_by_symbol=signal_eligible_bars_by_symbol,
+            feature_observation_counts_by_futures_symbol=feature_observation_counts_by_futures_symbol,
+            minimum_funding_observations=config.min_funding_observations,
+            minimum_signal_eligible_bars=config.min_signal_eligible_bars,
             blockers=tuple(dict.fromkeys(blockers)),
             warnings=(
                 "derivatives_context_is_directional_only; spot_eur_returns_are_calculated_without_usd_eur_price_conversion",
