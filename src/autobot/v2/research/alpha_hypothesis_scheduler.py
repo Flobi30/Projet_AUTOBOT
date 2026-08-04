@@ -19,6 +19,7 @@ from typing import Any, Iterable, Mapping, Sequence
 from .alpha_hypothesis_lab import RESEARCH_ONLY_CAPITAL_FLAGS, load_alpha_hypotheses
 from .alpha_hypothesis_runner import AlphaHypothesisRunnerReport
 from .data_capability_scanner import build_data_capability_scan_report
+from .funding_basis_research_adapter import FundingBasisResearchConfig, build_funding_basis_availability
 from .research_memory_store import ResearchMemoryStore
 
 
@@ -98,6 +99,7 @@ STATUSES = {
     "REJECTED_CURRENT_CONFIG",
     "DATA_MISSING",
     "ADAPTER_MISSING",
+    "RUNNABLE_DATA_CHECK",
     "RUNNABLE_SMOKE",
     "RUNNABLE_WALK_FORWARD",
     "WAITING_FOR_MORE_DATA",
@@ -624,7 +626,11 @@ def build_alpha_hypothesis_scheduler_report(config: AlphaSchedulerConfig) -> Alp
     adapter_readiness = _adapter_readiness(templates)
     family_counts = memory.trial_count_by_family()
     template_counts = memory.trial_count_by_template()
-    hypothesis_ids = {str(item["id"]) for item in hypotheses.get("hypotheses", ())}
+    hypotheses_by_id = {
+        str(item["id"]): dict(item)
+        for item in hypotheses.get("hypotheses", ())
+        if isinstance(item, Mapping) and str(item.get("id") or "").strip()
+    }
     candidates: list[ScheduledHypothesis] = []
     family_by_id = {str(item["alpha_family_id"]): item for item in knowledge["families"]}
     for template in templates["templates"]:
@@ -634,13 +640,14 @@ def build_alpha_hypothesis_scheduler_report(config: AlphaSchedulerConfig) -> Alp
             candidates.append(_candidate_missing_family(template, readiness))
             continue
         hypothesis_id = FAMILY_TO_HYPOTHESIS.get(family_id, family_id)
-        if hypothesis_id not in hypothesis_ids:
+        if hypothesis_id not in hypotheses_by_id:
             hypothesis_id = f"{family_id}__{template['template_id']}"
         candidates.append(
             _schedule_template(
                 template=template,
                 family=family,
                 hypothesis_id=hypothesis_id,
+                hypothesis=hypotheses_by_id.get(hypothesis_id),
                 data=readiness,
                 derivatives_family_status=capability_scan.alpha_family_status,
                 adapter_status=adapter_readiness.get(str(template["template_id"]), "ADAPTER_MISSING"),
@@ -652,7 +659,10 @@ def build_alpha_hypothesis_scheduler_report(config: AlphaSchedulerConfig) -> Alp
             )
         )
     ranked = tuple(sorted(candidates, key=lambda item: (-item.priority_score, item.template_id)))
-    selected = next((item for item in ranked if item.status == "RUNNABLE_SMOKE"), None)
+    selected = next(
+        (item for item in ranked if item.status in {"RUNNABLE_DATA_CHECK", "RUNNABLE_SMOKE"}),
+        None,
+    )
     command = selected.recommended_command if selected else None
     adapter_backlog = _build_adapter_backlog(
         templates=templates,
@@ -1300,6 +1310,7 @@ def _schedule_template(
     template: Mapping[str, Any],
     family: Mapping[str, Any],
     hypothesis_id: str,
+    hypothesis: Mapping[str, Any] | None,
     data: DataReadiness,
     derivatives_family_status: Mapping[str, Mapping[str, Any]],
     adapter_status: str,
@@ -1321,6 +1332,15 @@ def _schedule_template(
         derivatives_status=derivatives_family_status.get(hypothesis_id),
     )
     blockers.extend(missing)
+    if hypothesis_id == "funding_basis":
+        blockers.extend(
+            _funding_basis_adapter_blockers(
+                template=template,
+                hypothesis=hypothesis,
+                config=config,
+                data_paths=data_paths,
+            )
+        )
     if adapter_status != "READY":
         blockers.append("adapter_missing")
     rejected_key = f"{hypothesis_id}__{template_id}"
@@ -1336,12 +1356,16 @@ def _schedule_template(
 
     if "rejected_current_config_requires_new_data" in blockers:
         status = "REJECTED_CURRENT_CONFIG"
-    elif "derivatives_waiting_for_more_data" in blockers:
+    elif any(
+        item == "derivatives_waiting_for_more_data"
+        or item.startswith("funding_basis_adapter_waiting_for_more_data")
+        for item in blockers
+    ):
         status = "WAITING_FOR_MORE_DATA"
     elif any(
         (item.endswith("_missing") or item.startswith("missing_")) and item != "adapter_missing"
         for item in blockers
-    ):
+    ) or any(item.startswith("funding_basis_adapter_inputs_unavailable") for item in blockers):
         status = "DATA_MISSING"
     elif "adapter_missing" in blockers:
         status = "ADAPTER_MISSING"
@@ -1350,6 +1374,10 @@ def _schedule_template(
         blockers.append("trial_count_penalty_requires_new_data")
     elif hypothesis_id == "volatility_breakout":
         status = "RUNNABLE_WALK_FORWARD"
+    elif hypothesis_id == "funding_basis":
+        # A funding/basis candidate may enter the unattended coordinator only
+        # for an immutable data check. The next smoke stage remains human-led.
+        status = "RUNNABLE_DATA_CHECK"
     else:
         status = "RUNNABLE_SMOKE"
 
@@ -1375,6 +1403,64 @@ def _schedule_template(
         blockers=tuple(blockers),
         warnings=tuple(warnings),
     )
+
+
+def _funding_basis_adapter_blockers(
+    *,
+    template: Mapping[str, Any],
+    hypothesis: Mapping[str, Any] | None,
+    config: AlphaSchedulerConfig,
+    data_paths: Sequence[Path],
+) -> tuple[str, ...]:
+    """Reuse the adapter's exact read-only readiness gate for scheduling.
+
+    A generic capability scan can establish that historical derivatives data
+    exists. It cannot prove that the current forward snapshot has sufficient
+    point-in-time overlap for this adapter. This prevents a historical file
+    from being mistaken for runnable funding/basis evidence.
+    """
+
+    if config.derivatives_feature_snapshot_manifest is None:
+        return ("funding_basis_derivatives_feature_snapshot_missing",)
+    if hypothesis is None:
+        return ("funding_basis_hypothesis_metadata_missing",)
+    symbols = tuple(
+        str(item).strip().upper()
+        for item in hypothesis.get("symbols", ())
+        if str(item).strip()
+    )
+    maximum_symbols = min(config.max_symbols, int(template["max_symbols"]))
+    if not symbols:
+        return ("funding_basis_hypothesis_symbols_missing",)
+    try:
+        availability = build_funding_basis_availability(
+            FundingBasisResearchConfig(
+                run_id=f"{config.run_id}_funding_basis_availability",
+                spot_data_paths=tuple(data_paths),
+                derivatives_feature_snapshot_manifest=config.derivatives_feature_snapshot_manifest,
+                template=template,
+                symbols=symbols[:maximum_symbols],
+                cost_profile=str(template["expected_cost_model"]),
+                max_variants=min(config.max_variants, int(template["max_variants"])),
+                max_symbols=maximum_symbols,
+                max_runtime_seconds=min(
+                    config.max_runtime_seconds,
+                    float(template["max_runtime_seconds"]),
+                ),
+            )
+        )
+    except (OSError, ValueError):
+        # Keep scheduler reports concise and avoid leaking local paths or raw
+        # exception messages. The material DATA_CHECK retains typed evidence.
+        return ("funding_basis_adapter_inputs_unavailable",)
+    if availability.available:
+        return ()
+    prefix = (
+        "funding_basis_adapter_waiting_for_more_data"
+        if availability.status == "WAITING_FOR_MORE_DATA"
+        else "funding_basis_adapter_inputs_unavailable"
+    )
+    return tuple(dict.fromkeys((prefix, *availability.blockers)))
 
 
 def _derivatives_feature_snapshot_state(path: Path | None) -> dict[str, Any] | None:
@@ -1684,6 +1770,7 @@ def _next_action(status: str) -> str:
         "REJECTED_CURRENT_CONFIG": "wait_for_new_data_or_new_thesis",
         "DATA_MISSING": "collect_required_data_or_mark_not_suitable",
         "ADAPTER_MISSING": "write_adapter_before_testing",
+        "RUNNABLE_DATA_CHECK": "run_allowlisted_funding_basis_data_check",
         "RUNNABLE_SMOKE": "run_alpha_hypothesis_runner_smoke",
         "RUNNABLE_WALK_FORWARD": "run_alpha_hypothesis_runner_walk_forward",
         "WAITING_FOR_MORE_DATA": "wait_for_more_data",

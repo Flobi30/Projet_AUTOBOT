@@ -16,12 +16,14 @@ from autobot.v2.research.alpha_hypothesis_scheduler import (
     AlphaSchedulerConfig,
     ResearchMemoryRecord,
 )
+from autobot.v2.research.alpha_hypothesis_runner import AlphaGateResult, AlphaHypothesisRunnerReport
 from autobot.v2.research.bounded_research_coordinator import (
     BoundedResearchCoordinatorConfig,
     run_bounded_research_coordinator,
 )
-from autobot.v2.research.experiment_registry import ExperimentRegistry
+from autobot.v2.research.experiment_registry import ExperimentRegistry, ExperimentSpec
 from autobot.v2.research.canonical_feature_snapshot import CanonicalFeatureSnapshotConfig, build_canonical_feature_snapshot
+from autobot.v2.research.manifested_experiment import FeatureSnapshotProvenance
 from autobot.v2.research.research_memory_store import ResearchMemoryStore
 
 
@@ -72,6 +74,142 @@ def test_coordinator_can_run_the_bounded_reversal_adapter_without_execution_path
     assert report.runner_report.paper_capital_allowed is False
     assert report.runner_report.live_allowed is False
     assert report.runner_report.promotable is False
+
+
+def test_coordinator_runs_only_the_funding_data_check_and_claims_combined_evidence(tmp_path, monkeypatch):
+    data_dir = _write_ohlcv(tmp_path)
+    config = _config(tmp_path, data_dir, _feature_manifest(tmp_path), tmp_path / "memory.sqlite3")
+    derivatives_manifest = tmp_path / "derivatives_forward.json"
+    config = replace(
+        config,
+        scheduler=replace(config.scheduler, derivatives_feature_snapshot_manifest=derivatives_manifest),
+    )
+    base_scheduler = coordinator.build_alpha_hypothesis_scheduler_report(config.scheduler)
+    original = next(item for item in base_scheduler.candidates if item.template_id == "funding_extreme_reversion")
+    selected = replace(
+        original,
+        status="RUNNABLE_DATA_CHECK",
+        adapter_ready=True,
+        blockers=(),
+        warnings=(),
+        next_action="run_allowlisted_funding_basis_data_check",
+        recommended_command=None,
+    )
+    monkeypatch.setattr(
+        coordinator,
+        "build_alpha_hypothesis_scheduler_report",
+        lambda _scheduler: replace(base_scheduler, selected=selected),
+    )
+    captured = {}
+    spot = _provenance("spot_snapshot", "spot_fingerprint", "CANONICAL_FEATURE_SNAPSHOT")
+    derivatives = _provenance(
+        "derivatives_snapshot",
+        "derivatives_fingerprint",
+        "DERIVATIVES_POINT_IN_TIME",
+    )
+    template = {
+        "template_id": "funding_extreme_reversion",
+        "alpha_family_id": "funding_basis",
+        "max_variants": 2,
+        "max_symbols": 4,
+        "max_runtime_seconds": 120,
+        "expected_cost_model": "research_stress",
+    }
+    hypothesis = {"id": "funding_basis", "symbols": ["BTCZEUR"], "timeframe": ["1h"]}
+    spec = ExperimentSpec(
+        hypothesis_id="funding_basis",
+        template_id="funding_extreme_reversion",
+        thesis="fixture funding data check",
+        code_commit="test-commit",
+        image_ref="oci-revision:test-commit",
+        data_snapshot_id="combined_fixture",
+        feature_versions={"spot_feature": "1.0.0", "funding_rate_relative": "1.0.0"},
+        parameters={"mode": "data_check", "max_variants": 0},
+        seed=0,
+        cost_model={"profile": "research_stress"},
+        environment={"research_only": True, "paper_capital_allowed": False, "live_allowed": False, "promotable": False},
+        research_campaign_id="family_funding_basis",
+    )
+
+    def build_material(*, mode, **_kwargs):
+        assert mode == "data_check"
+        return template, hypothesis, spec, spot, derivatives, (data_dir,)
+
+    def build_runner(runner_config, *, commit):
+        captured["config"] = runner_config
+        return AlphaHypothesisRunnerReport(
+            run_id=runner_config.run_id,
+            generated_at="2026-08-04T00:00:00+00:00",
+            commit=commit,
+            hypothesis_id="funding_basis",
+            requested_hypothesis_id="funding_basis",
+            mode="data_check",
+            state_db=None,
+            data_paths=tuple(str(path) for path in runner_config.data_paths),
+            gates=(
+                AlphaGateResult(
+                    gate="DATA_CHECK",
+                    status="KEEP_RESEARCH",
+                    passed=True,
+                    stopped=False,
+                    reasons=("funding_basis_research_inputs_ready",),
+                    autonomy_level="AUTO_ALLOWED",
+                    risk_direction="neutral",
+                    requires_human_approval=False,
+                    runtime_seconds=0.0,
+                    metrics={"adapter_availability": {"available": True}},
+                ),
+            ),
+            final_status="KEEP_RESEARCH",
+            next_allowed_stage="FAST_NET_EDGE_TEST",
+            final_decision="NEXT_STAGE_AVAILABLE",
+            reasons=("requested_mode_stage_completed",),
+            autonomy_policy_summary={},
+            runtime_seconds=0.0,
+            safety_notes=("research-only fixture",),
+        )
+
+    monkeypatch.setattr(coordinator, "_build_material_experiment", build_material)
+    monkeypatch.setattr(coordinator, "build_alpha_hypothesis_runner_report", build_runner)
+
+    first = run_bounded_research_coordinator(config)
+
+    assert first.decision == "RESEARCH_DATA_CHECK_COMPLETED"
+    assert first.runner_report is not None
+    assert first.runner_report.mode == "data_check"
+    assert [gate.gate for gate in first.runner_report.gates] == ["DATA_CHECK"]
+    assert captured["config"].derivatives_feature_snapshot_manifest == derivatives_manifest
+    assert first.experiment_registry_state is not None
+    assert first.experiment_registry_state["latest_stage"] == "DATA_CHECK"
+    assert first.experiment_registry_state["trial_count"] == 0
+    assert first.feature_snapshot is not None
+    assert first.feature_snapshot["bounded_claim_snapshot_id"].startswith("combined_")
+    assert "derivatives_feature_snapshot" in first.feature_snapshot
+    assert not config.memory_path.exists()
+
+    second = run_bounded_research_coordinator(config)
+
+    assert second.decision == "SKIPPED_FEATURE_SNAPSHOT_ALREADY_CLAIMED"
+    assert second.runner_report is None
+
+
+def test_coordinator_rejects_funding_data_check_without_derivatives_evidence(tmp_path, monkeypatch):
+    data_dir = _write_ohlcv(tmp_path)
+    config = _config(tmp_path, data_dir, _feature_manifest(tmp_path), tmp_path / "memory.sqlite3")
+    base_scheduler = coordinator.build_alpha_hypothesis_scheduler_report(config.scheduler)
+    original = next(item for item in base_scheduler.candidates if item.template_id == "funding_extreme_reversion")
+    selected = replace(original, status="RUNNABLE_DATA_CHECK", adapter_ready=True, blockers=(), warnings=())
+    monkeypatch.setattr(
+        coordinator,
+        "build_alpha_hypothesis_scheduler_report",
+        lambda _scheduler: replace(base_scheduler, selected=selected),
+    )
+
+    report = run_bounded_research_coordinator(config)
+
+    assert report.decision == "BLOCKED_INVALID_PROVENANCE"
+    assert "derivatives feature snapshot is required" in report.reasons[0]
+    assert not config.experiment_registry_path.exists()
 
 
 def test_coordinator_fails_closed_when_scheduler_selects_nothing(tmp_path, monkeypatch):
@@ -194,6 +332,25 @@ def _config(
         output_dir=tmp_path / "reports",
         memory_path=memory_path,
         experiment_registry_path=tmp_path / "registry.sqlite3",
+    )
+
+
+def _provenance(snapshot_id: str, fingerprint: str, snapshot_kind: str) -> FeatureSnapshotProvenance:
+    return FeatureSnapshotProvenance(
+        manifest_path=f"/immutable/{snapshot_id}.json",
+        feature_snapshot_id=snapshot_id,
+        feature_snapshot_fingerprint=fingerprint,
+        snapshot_kind=snapshot_kind,
+        source_snapshot_id=f"{snapshot_id}_source",
+        source_snapshot_fingerprint=f"{fingerprint}_source",
+        feature_registry_fingerprint=f"{fingerprint}_registry",
+        feature_versions={"fixture_feature": "1.0.0"},
+        feature_count=1,
+        parity_ok=True,
+        ingestion_time_unknown_count=0,
+        material_verified=True,
+        bundle_content_fingerprint=f"{fingerprint}_bundle",
+        runtime_parity_verified=True,
     )
 
 

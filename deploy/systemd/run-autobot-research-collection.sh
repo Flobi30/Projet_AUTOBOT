@@ -186,9 +186,11 @@ docker run --rm \
     "${FORWARD_DERIVATIVES_SCHEDULER_ARGS[@]}"
 
 # A fourth isolated container may advance exactly one explicitly allowlisted,
-# point-in-time research smoke experiment. It receives no network, no runtime
-# state database, no secrets and no order path. The SQLite snapshot claim makes
-# the action idempotent even if this service is started twice.
+# point-in-time research DATA_CHECK or smoke experiment. Funding/basis is
+# restricted to DATA_CHECK: it cannot automatically start a smoke, shadow,
+# paper or live path. The container receives no network, no runtime state
+# database, no secrets and no order path. The SQLite snapshot claim makes the
+# action idempotent even if this service is started twice.
 FEATURE_MANIFEST="${CANONICAL_MANIFEST_DIR}/${RUN_ID}_canonical_features_feature_snapshot.json"
 if [[ "${COORDINATOR_ENABLED}" == "true" && -r "${FEATURE_MANIFEST}" ]]; then
   docker run --rm \

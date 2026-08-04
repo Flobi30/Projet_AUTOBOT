@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
+from hashlib import sha256
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -58,6 +59,8 @@ AUTOMATED_SMOKE_TEMPLATE_IDS = frozenset(
     }
 )
 AUTOMATED_SMOKE_HYPOTHESIS_IDS = frozenset({"cross_momentum", "mean_reversion_volatility_reversal"})
+AUTOMATED_DATA_CHECK_TEMPLATE_IDS = frozenset({"funding_extreme_reversion"})
+AUTOMATED_DATA_CHECK_HYPOTHESIS_IDS = frozenset({"funding_basis"})
 DEFAULT_COORDINATOR_OUTPUT_DIR = Path("data/research/reports/bounded_research_coordinator")
 
 
@@ -140,7 +143,7 @@ class BoundedResearchCoordinatorReport:
 def run_bounded_research_coordinator(
     config: BoundedResearchCoordinatorConfig,
 ) -> BoundedResearchCoordinatorReport:
-    """Run at most one allowlisted smoke experiment, otherwise fail closed.
+    """Run at most one allowlisted DATA_CHECK or smoke experiment.
 
     ``ScheduledHypothesis.recommended_command`` is deliberately never parsed
     or launched.  All runner inputs are reconstructed from typed scheduler,
@@ -157,16 +160,21 @@ def run_bounded_research_coordinator(
             reasons=("image_commit_does_not_match_declared_code_commit",),
         )
     if selected is None:
-        return replace(base, decision="NO_RUNNABLE_CANDIDATE", reasons=("scheduler_selected_no_runnable_smoke",))
-    if selected.status != "RUNNABLE_SMOKE":
+        return replace(base, decision="NO_RUNNABLE_CANDIDATE", reasons=("scheduler_selected_no_runnable_research_gate",))
+    mode = _coordinator_mode_for(
+        selected_hypothesis_id=selected.hypothesis_id,
+        selected_template_id=selected.template_id,
+        status=selected.status,
+    )
+    if mode is None:
         return replace(
             base,
             decision="BLOCKED_BY_SCHEDULER_STATUS",
             selected_hypothesis_id=selected.hypothesis_id,
             selected_template_id=selected.template_id,
-            reasons=(f"scheduler_status_{selected.status.lower()}",),
+            reasons=(f"scheduler_status_{selected.status.lower()}_is_not_automatable",),
         )
-    if selected.hypothesis_id not in AUTOMATED_SMOKE_HYPOTHESIS_IDS:
+    if mode == "smoke" and selected.hypothesis_id not in AUTOMATED_SMOKE_HYPOTHESIS_IDS:
         return replace(
             base,
             decision="BLOCKED_HYPOTHESIS_NOT_ALLOWLISTED",
@@ -174,7 +182,7 @@ def run_bounded_research_coordinator(
             selected_template_id=selected.template_id,
             reasons=("automated_hypothesis_not_allowlisted",),
         )
-    if selected.template_id not in config.allowed_template_ids:
+    if mode == "smoke" and selected.template_id not in config.allowed_template_ids:
         return replace(
             base,
             decision="BLOCKED_TEMPLATE_NOT_ALLOWLISTED",
@@ -184,10 +192,11 @@ def run_bounded_research_coordinator(
         )
 
     try:
-        template, hypothesis, spec, provenance, scoped_data_paths = _build_material_experiment(
+        template, hypothesis, spec, provenance, derivatives_provenance, scoped_data_paths = _build_material_experiment(
             config=config,
             hypothesis_id=selected.hypothesis_id,
             template_id=selected.template_id,
+            mode=mode,
         )
     except (ManifestedExperimentError, ValueError) as exc:
         return replace(
@@ -198,20 +207,28 @@ def run_bounded_research_coordinator(
             reasons=(str(exc),),
         )
 
+    claim_snapshot_id, claim_snapshot_fingerprint = _bounded_snapshot_claim_identity(
+        provenance,
+        derivatives_provenance,
+    )
+    feature_evidence = provenance.to_dict()
+    if derivatives_provenance is not None:
+        feature_evidence["derivatives_feature_snapshot"] = derivatives_provenance.to_dict()
+    feature_evidence["bounded_claim_snapshot_id"] = claim_snapshot_id
+    feature_evidence["bounded_claim_snapshot_fingerprint"] = claim_snapshot_fingerprint
     registry = ExperimentRegistry(config.experiment_registry_path)
     common = {
         "selected_hypothesis_id": selected.hypothesis_id,
         "selected_template_id": selected.template_id,
-        "feature_snapshot": provenance.to_dict(),
+        "feature_snapshot": feature_evidence,
     }
     # Claim the point-in-time feature evidence before registering or inspecting
-    # the material experiment. A feature snapshot authorizes at most one
-    # unattended smoke attempt, even when its first attempt reached a terminal
-    # rejection. This makes the snapshot-level idempotency gate deterministic
-    # and prevents a later status lookup from disguising a duplicate attempt.
+    # the material experiment. The exact evidence bundle authorizes at most
+    # one unattended action, even when its first attempt reached a terminal
+    # rejection. This makes the snapshot-level idempotency gate deterministic.
     if not registry.claim_bounded_research_snapshot(
-        feature_snapshot_id=provenance.feature_snapshot_id,
-        feature_snapshot_fingerprint=provenance.feature_snapshot_fingerprint,
+        feature_snapshot_id=claim_snapshot_id,
+        feature_snapshot_fingerprint=claim_snapshot_fingerprint,
         coordinator_run_id=config.run_id,
     ):
         return replace(
@@ -249,12 +266,13 @@ def run_bounded_research_coordinator(
 
     symbols = _bounded_symbols(hypothesis, maximum=min(config.scheduler.max_symbols, int(template["max_symbols"])))
     timeframes = _bounded_text(hypothesis.get("timeframe"))
-    registry.record_trial_plan(
-        experiment_id=state.experiment_id,
-        variant_count=min(config.scheduler.max_variants, int(template["max_variants"])),
-        symbols=symbols,
-        timeframes=timeframes,
-    )
+    if mode == "smoke":
+        registry.record_trial_plan(
+            experiment_id=state.experiment_id,
+            variant_count=min(config.scheduler.max_variants, int(template["max_variants"])),
+            symbols=symbols,
+            timeframes=timeframes,
+        )
     trial_floor = registry.validation_trial_count(
         hypothesis_id=spec.hypothesis_id,
         research_campaign_id=spec.research_campaign_id,
@@ -265,7 +283,7 @@ def run_bounded_research_coordinator(
                 AlphaHypothesisRunnerConfig(
                     run_id=f"{config.run_id}_{selected.hypothesis_id}_{selected.template_id}",
                     hypothesis_id=selected.hypothesis_id,
-                    mode="smoke",
+                    mode=mode,
                     hypotheses_path=config.scheduler.hypotheses_path,
                     templates_path=config.scheduler.templates_path,
                     template_id=selected.template_id,
@@ -282,21 +300,27 @@ def run_bounded_research_coordinator(
                     validation_trial_count_floor=trial_floor,
                     validation_trial_scope_id=spec.research_campaign_id,
                     feature_snapshot_manifest=config.feature_snapshot_manifest,
+                    derivatives_feature_snapshot_manifest=(
+                        config.scheduler.derivatives_feature_snapshot_manifest
+                        if mode == "data_check"
+                        else None
+                    ),
                 ),
                 commit=config.code_commit,
             ),
             config.output_dir / "runner",
         )
-        record_alpha_runner_trial(
-            runner,
-            memory_path=config.memory_path,
-            template_id=str(template["template_id"]),
-            alpha_family_id=str(template["alpha_family_id"]),
-        )
+        if mode == "smoke":
+            record_alpha_runner_trial(
+                runner,
+                memory_path=config.memory_path,
+                template_id=str(template["template_id"]),
+                alpha_family_id=str(template["alpha_family_id"]),
+            )
         state = registry.record_runner_evidence(
             spec=spec,
             report=runner,
-            variant_count=min(config.scheduler.max_variants, int(template["max_variants"])),
+            variant_count=(0 if mode == "data_check" else min(config.scheduler.max_variants, int(template["max_variants"]))),
             symbols=symbols,
             timeframes=timeframes,
             record_trial_dimensions=False,
@@ -311,18 +335,22 @@ def run_bounded_research_coordinator(
             reasons=(f"{type(exc).__name__}:{exc}", "same_snapshot_retry_is_blocked"),
             selected_hypothesis_id=selected.hypothesis_id,
             selected_template_id=selected.template_id,
-            feature_snapshot=provenance.to_dict(),
+            feature_snapshot=feature_evidence,
             experiment_registry_state=registry.get_state(state.experiment_id).to_dict(),
         )
     return replace(
         base,
-        decision="RESEARCH_SMOKE_COMPLETED",
-        reasons=("one_allowlisted_smoke_experiment_completed",),
+        decision=("RESEARCH_DATA_CHECK_COMPLETED" if mode == "data_check" else "RESEARCH_SMOKE_COMPLETED"),
+        reasons=(
+            "one_allowlisted_funding_basis_data_check_completed_no_automatic_smoke"
+            if mode == "data_check"
+            else "one_allowlisted_smoke_experiment_completed",
+        ),
         runner_report=runner,
         experiment_registry_state=state.to_dict(),
         selected_hypothesis_id=selected.hypothesis_id,
         selected_template_id=selected.template_id,
-        feature_snapshot=provenance.to_dict(),
+        feature_snapshot=feature_evidence,
     )
 
 
@@ -345,7 +373,7 @@ def render_bounded_research_coordinator_report(report: BoundedResearchCoordinato
         "",
         "## Scope",
         "",
-        "- One allowlisted research-only smoke experiment at most.",
+        "- One allowlisted research-only DATA_CHECK or smoke experiment at most.",
         "- Scheduler command text is never executed.",
         "- No runtime order path, shadow activation, paper capital, live activation, promotion, sizing, leverage, or UI change.",
         f"- Commit: `{report.code_commit}`.",
@@ -402,7 +430,15 @@ def _build_material_experiment(
     config: BoundedResearchCoordinatorConfig,
     hypothesis_id: str,
     template_id: str,
-) -> tuple[dict[str, Any], dict[str, Any], Any, FeatureSnapshotProvenance, tuple[Path, ...]]:
+    mode: str,
+) -> tuple[
+    dict[str, Any],
+    dict[str, Any],
+    Any,
+    FeatureSnapshotProvenance,
+    FeatureSnapshotProvenance | None,
+    tuple[Path, ...],
+]:
     resolved_hypothesis_id = canonical_hypothesis_id(hypothesis_id)
     templates = load_strategy_templates(config.scheduler.templates_path)
     template = next(
@@ -421,6 +457,11 @@ def _build_material_experiment(
                     and str(item.get("alpha_family_id")) == "mean_reversion"
                     and str(item.get("required_adapter")) == "volatility_reversal_research_adapter"
                 )
+                or (
+                    resolved_hypothesis_id == "funding_basis"
+                    and str(item.get("alpha_family_id")) == "funding_basis"
+                    and str(item.get("required_adapter")) == "funding_basis_research_adapter"
+                )
             )
         ),
         None,
@@ -434,10 +475,28 @@ def _build_material_experiment(
     )
     if hypothesis is None:
         raise ValueError(f"hypothesis metadata missing for {resolved_hypothesis_id}")
-    max_variants = min(config.scheduler.max_variants, int(template["max_variants"]))
+    if mode not in {"smoke", "data_check"}:
+        raise ValueError("unsupported bounded coordinator mode")
+    if mode == "data_check" and (
+        resolved_hypothesis_id not in AUTOMATED_DATA_CHECK_HYPOTHESIS_IDS
+        or template_id not in AUTOMATED_DATA_CHECK_TEMPLATE_IDS
+    ):
+        raise ValueError("data_check template does not match its registered funding/basis adapter")
+    if mode == "smoke" and resolved_hypothesis_id not in AUTOMATED_SMOKE_HYPOTHESIS_IDS:
+        raise ValueError("smoke template does not match an approved research-only adapter")
+    if mode == "data_check" and config.scheduler.derivatives_feature_snapshot_manifest is None:
+        raise ManifestedExperimentError("derivatives feature snapshot is required for funding/basis DATA_CHECK")
+    max_variants = 0 if mode == "data_check" else min(config.scheduler.max_variants, int(template["max_variants"]))
     max_symbols = min(config.scheduler.max_symbols, int(template["max_symbols"]))
     symbols = _bounded_symbols(hypothesis, maximum=max_symbols)
     feature_provenance = load_feature_snapshot_provenance(config.feature_snapshot_manifest)
+    derivatives_provenance = (
+        load_feature_snapshot_provenance(config.scheduler.derivatives_feature_snapshot_manifest)
+        if mode == "data_check"
+        else None
+    )
+    if derivatives_provenance is not None and derivatives_provenance.snapshot_kind != "DERIVATIVES_POINT_IN_TIME":
+        raise ManifestedExperimentError("funding/basis DATA_CHECK requires DERIVATIVES_POINT_IN_TIME evidence")
     scoped_data_paths = scope_data_paths_to_feature_snapshot(
         config.scheduler.data_paths,
         source_snapshot_id=feature_provenance.source_snapshot_id,
@@ -451,7 +510,7 @@ def _build_material_experiment(
         feature_snapshot_manifest=config.feature_snapshot_manifest,
         parameters={
             "coordinator": "bounded_research_coordinator_v1",
-            "mode": "smoke",
+            "mode": mode,
             "max_variants": max_variants,
             "max_symbols": max_symbols,
             "symbols": list(symbols),
@@ -464,11 +523,54 @@ def _build_material_experiment(
             "scheduler_run_id": config.scheduler.run_id,
             **RESEARCH_ONLY_CAPITAL_FLAGS,
         },
+        derivatives_snapshot_manifest=(
+            config.scheduler.derivatives_feature_snapshot_manifest if mode == "data_check" else None
+        ),
         research_campaign_id=f"family_{str(template['alpha_family_id']).strip().lower()}",
     )
     if not provenance.runtime_parity_proven:
         raise ManifestedExperimentError("runtime parity must be proven before automated research smoke")
-    return template, hypothesis, spec, provenance, scoped_data_paths
+    if derivatives_provenance is not None and not derivatives_provenance.runtime_parity_proven:
+        raise ManifestedExperimentError("derivatives runtime parity must be proven before automated funding/basis DATA_CHECK")
+    return template, hypothesis, spec, provenance, derivatives_provenance, scoped_data_paths
+
+
+def _coordinator_mode_for(*, selected_hypothesis_id: str, selected_template_id: str, status: str) -> str | None:
+    if (
+        status == "RUNNABLE_DATA_CHECK"
+        and selected_hypothesis_id in AUTOMATED_DATA_CHECK_HYPOTHESIS_IDS
+        and selected_template_id in AUTOMATED_DATA_CHECK_TEMPLATE_IDS
+    ):
+        return "data_check"
+    if status == "RUNNABLE_SMOKE":
+        return "smoke"
+    return None
+
+
+def _bounded_snapshot_claim_identity(
+    provenance: FeatureSnapshotProvenance,
+    derivatives_provenance: FeatureSnapshotProvenance | None,
+) -> tuple[str, str]:
+    """Return one idempotency identity for exactly the evidence a run reads."""
+
+    if derivatives_provenance is None:
+        return provenance.feature_snapshot_id, provenance.feature_snapshot_fingerprint
+    payload = {
+        "spot": {
+            "id": provenance.feature_snapshot_id,
+            "fingerprint": provenance.feature_snapshot_fingerprint,
+            "bundle": provenance.bundle_content_fingerprint,
+        },
+        "derivatives": {
+            "id": derivatives_provenance.feature_snapshot_id,
+            "fingerprint": derivatives_provenance.feature_snapshot_fingerprint,
+            "bundle": derivatives_provenance.bundle_content_fingerprint,
+        },
+    }
+    fingerprint = sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return f"combined_{fingerprint[:20]}", fingerprint
 
 
 def _bounded_symbols(hypothesis: Mapping[str, Any], *, maximum: int) -> tuple[str, ...]:

@@ -25,6 +25,7 @@ from autobot.v2.research.alpha_hypothesis_scheduler import (
     scan_data_readiness,
 )
 from autobot.v2.research.alpha_hypothesis_runner import AlphaHypothesisRunnerConfig, build_alpha_hypothesis_runner_report
+from autobot.v2.research.funding_basis_research_adapter import FundingBasisAvailability
 from autobot.v2.research.research_memory_store import ResearchMemoryStore
 from autobot.v2.strategy_runtime_policy import is_runtime_engine_retired
 
@@ -291,6 +292,73 @@ def test_scheduler_reports_derivatives_waiting_instead_of_generic_data_missing(t
     assert candidate.adapter_ready is True
 
 
+def test_scheduler_uses_the_funding_adapter_gate_before_exposing_a_data_check(tmp_path, monkeypatch):
+    data_dir = _write_ohlcv(tmp_path)
+    capability_scan = SimpleNamespace(
+        capabilities=(),
+        alpha_family_status={"funding_basis": {"status": "DATA_AVAILABLE_RESEARCH_ONLY", "blockers": ()}},
+        rejected_family_status={},
+        scheduler_data_state={},
+        scheduler_notes=(),
+    )
+    waiting = FundingBasisAvailability(
+        adapter_id="funding_basis_research_adapter",
+        status="WAITING_FOR_MORE_DATA",
+        available=False,
+        selected_timeframe="1h",
+        symbols=("BTCZEUR",),
+        futures_to_spot={"PF_XBTUSD": "BTCZEUR"},
+        spot_row_count=150,
+        derivatives_feature_count=18,
+        blockers=("derivatives_history_insufficient:BTCZEUR",),
+    )
+    monkeypatch.setattr(
+        "autobot.v2.research.alpha_hypothesis_scheduler.build_data_capability_scan_report",
+        lambda **_kwargs: capability_scan,
+    )
+    monkeypatch.setattr(
+        "autobot.v2.research.alpha_hypothesis_scheduler.build_funding_basis_availability",
+        lambda _config: waiting,
+    )
+
+    report = build_alpha_hypothesis_scheduler_report(
+        AlphaSchedulerConfig(
+            run_id="pytest_funding_adapter_waiting",
+            state_db=None,
+            data_paths=(data_dir,),
+            derivatives_feature_snapshot_manifest=tmp_path / "forward_derivatives.json",
+            memory_path=tmp_path / "empty_memory.json",
+        )
+    )
+
+    funding = {item.template_id: item for item in report.candidates}["funding_extreme_reversion"]
+    assert funding.status == "WAITING_FOR_MORE_DATA"
+    assert "funding_basis_adapter_waiting_for_more_data" in funding.blockers
+    assert "derivatives_history_insufficient:BTCZEUR" in funding.blockers
+    assert funding.recommended_command is None
+
+    ready = replace(waiting, status="READY", available=True, blockers=())
+    monkeypatch.setattr(
+        "autobot.v2.research.alpha_hypothesis_scheduler.build_funding_basis_availability",
+        lambda _config: ready,
+    )
+    ready_report = build_alpha_hypothesis_scheduler_report(
+        AlphaSchedulerConfig(
+            run_id="pytest_funding_adapter_ready",
+            state_db=None,
+            data_paths=(data_dir,),
+            derivatives_feature_snapshot_manifest=tmp_path / "forward_derivatives.json",
+            memory_path=tmp_path / "empty_memory.json",
+        )
+    )
+
+    ready_funding = {item.template_id: item for item in ready_report.candidates}["funding_extreme_reversion"]
+    assert ready_funding.status == "RUNNABLE_DATA_CHECK"
+    assert ready_funding.next_action == "run_allowlisted_funding_basis_data_check"
+    assert ready_funding.recommended_command is None
+    assert ready_report.selected == ready_funding
+
+
 def test_scheduler_reads_derivatives_capabilities_without_expanding_runner_market_data(tmp_path):
     data_dir = _write_ohlcv(tmp_path)
     manifest_dir = tmp_path / "manifests"
@@ -335,7 +403,7 @@ def test_scheduler_reads_derivatives_capabilities_without_expanding_runner_marke
     assert "derivatives_waiting_for_more_data" in candidate.blockers
 
 
-def test_scheduler_reports_forward_derivatives_evidence_without_changing_candidate_status(tmp_path):
+def test_scheduler_reports_forward_derivatives_evidence_as_waiting_when_the_adapter_window_is_short(tmp_path):
     data_dir = _write_ohlcv(tmp_path)
     forward_manifest = tmp_path / "derivatives_forward.json"
     forward_manifest.write_text(
@@ -380,7 +448,8 @@ def test_scheduler_reports_forward_derivatives_evidence_without_changing_candida
     assert report.derivatives_feature_snapshot["live_allowed"] is False
     assert report.derivatives_feature_snapshot["promotable"] is False
     funding = {item.template_id: item for item in report.candidates}["funding_extreme_reversion"]
-    assert funding.status == "DATA_MISSING"
+    assert funding.status == "WAITING_FOR_MORE_DATA"
+    assert "funding_basis_adapter_waiting_for_more_data" in funding.blockers
 
 
 def test_scheduler_reports_invalid_forward_derivatives_evidence_fail_closed(tmp_path):

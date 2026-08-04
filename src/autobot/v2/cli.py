@@ -415,7 +415,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     bounded_research = subparsers.add_parser(
         "bounded-research-coordinator",
-        help="Run at most one allowlisted research-only smoke experiment from typed scheduler evidence",
+        help="Run at most one allowlisted research-only DATA_CHECK or smoke experiment from typed scheduler evidence",
     )
     bounded_research.add_argument("--run-id", required=True)
     bounded_research.add_argument("--data-paths", required=True)
@@ -427,7 +427,10 @@ def _build_parser() -> argparse.ArgumentParser:
     bounded_research.add_argument(
         "--derivatives-feature-snapshot-manifest",
         default=None,
-        help="Optional forward-capture derivatives evidence for scheduler observability only; never passed to the runner.",
+        help=(
+            "Optional verified forward-capture derivatives evidence. Used only by the allowlisted funding_basis "
+            "DATA_CHECK; never authorizes automatic smoke, shadow, paper or live."
+        ),
     )
     bounded_research.add_argument("--feature-snapshot-manifest", required=True)
     bounded_research.add_argument("--knowledge-base", default="docs/research/alpha_knowledge_base.json")
@@ -2884,7 +2887,7 @@ def _cmd_alpha_hypothesis_runner(args: argparse.Namespace) -> int:
 
 
 def _cmd_bounded_research_coordinator(args: argparse.Namespace) -> int:
-    """Coordinate one typed, allowlisted research-only smoke experiment."""
+    """Coordinate one typed, allowlisted research-only data check or smoke."""
 
     from autobot.v2.research.alpha_hypothesis_runner import _current_git_commit
     from autobot.v2.research.alpha_hypothesis_scheduler import AlphaSchedulerConfig
