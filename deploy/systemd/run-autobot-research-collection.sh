@@ -108,6 +108,19 @@ docker run --rm \
     --config /app/config/research_data_collection.yaml \
     --run-id "${RUN_ID}"
 
+# The scheduler must inspect the precise canonical snapshot produced by this
+# collection. Scanning the immutable snapshot archive recursively would mix
+# overlapping bars and could silently retain an older source by path order.
+CANONICAL_OHLCV_MANIFEST="${CANONICAL_MANIFEST_DIR}/${RUN_ID}_canonical_ohlcv_canonical_ohlcv.json"
+if [[ ! -r "${CANONICAL_OHLCV_MANIFEST}" ]]; then
+  echo "AUTOBOT research collection blocked: current canonical OHLCV manifest is missing: ${CANONICAL_OHLCV_MANIFEST}" >&2
+  exit 1
+fi
+CANONICAL_SNAPSHOT_SCHEDULER_ARGS=(
+  --canonical-snapshot-manifest
+  "data/research/manifests/$(basename "${CANONICAL_OHLCV_MANIFEST}")"
+)
+
 # The collector only produces data. Run a separate read-only capability scan
 # afterwards so the next research scheduler cycle has an auditable explanation
 # of which alpha families remain blocked by data, without launching a strategy.
@@ -165,6 +178,7 @@ docker run --rm \
   python -m autobot.v2.cli alpha-hypothesis-scheduler \
     --run-id "${RUN_ID}_scheduler" \
     --data-paths data/research/canonical/ohlcv \
+    "${CANONICAL_SNAPSHOT_SCHEDULER_ARGS[@]}" \
     --capability-data-paths data/research/canonical/ohlcv,data/research/manifests \
     --memory-path data/research/alpha_research_memory.sqlite3 \
     --output-dir reports/research/daily_data_collection \

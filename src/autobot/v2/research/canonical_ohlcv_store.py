@@ -108,6 +108,10 @@ class RawSourceProvenance:
         return asdict(self)
 
 
+class CanonicalOHLCVManifestError(ValueError):
+    """Raised when a canonical OHLCV manifest cannot bind a research input."""
+
+
 @dataclass(frozen=True)
 class CanonicalOHLCVSnapshot:
     run_id: str
@@ -582,6 +586,58 @@ def load_latest_canonical_snapshot_manifest(manifest_dir: str | Path) -> dict[st
         if payload.get("snapshot_id") and payload.get("fingerprint"):
             return payload
     return None
+
+
+def resolve_canonical_ohlcv_snapshot_files(manifest_path: str | Path) -> tuple[Path, ...]:
+    """Resolve one canonical manifest to its exact, immutable CSV inputs.
+
+    A canonical directory intentionally retains multiple immutable snapshots.
+    Consumers must therefore bind to a manifest, never recursively scan that
+    directory and accidentally keep whichever overlapping bar sorts first.
+    This resolver checks that the manifest names one v2 snapshot and that each
+    declared market/timeframe file belongs to it and is readable.
+    """
+
+    path = Path(manifest_path)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise CanonicalOHLCVManifestError(f"canonical_snapshot_manifest_unreadable:{path}") from exc
+    if not isinstance(payload, Mapping):
+        raise CanonicalOHLCVManifestError("canonical_snapshot_manifest_not_object")
+    try:
+        schema_version = int(payload.get("schema_version") or 0)
+    except (TypeError, ValueError) as exc:
+        raise CanonicalOHLCVManifestError("canonical_snapshot_manifest_schema_unsupported") from exc
+    if schema_version < CANONICAL_OHLCV_SCHEMA_VERSION:
+        raise CanonicalOHLCVManifestError("canonical_snapshot_manifest_schema_unsupported")
+    snapshot_id = str(payload.get("snapshot_id") or "").strip()
+    fingerprint = str(payload.get("fingerprint") or "").strip()
+    files = payload.get("files")
+    if not snapshot_id or not fingerprint or not isinstance(files, list) or not files:
+        raise CanonicalOHLCVManifestError("canonical_snapshot_manifest_incomplete")
+
+    resolved: list[Path] = []
+    identities: set[tuple[str, str, str, str]] = set()
+    for item in files:
+        if not isinstance(item, Mapping):
+            raise CanonicalOHLCVManifestError("canonical_snapshot_manifest_file_invalid")
+        csv_path = Path(str(item.get("csv_path") or "").strip())
+        identity = tuple(
+            str(item.get(field) or "").strip().lower()
+            for field in ("exchange", "market_type", "symbol", "timeframe")
+        )
+        if not all(identity) or not str(csv_path):
+            raise CanonicalOHLCVManifestError("canonical_snapshot_manifest_file_incomplete")
+        if identity in identities:
+            raise CanonicalOHLCVManifestError("canonical_snapshot_manifest_duplicate_market_timeframe")
+        if snapshot_id not in csv_path.parts:
+            raise CanonicalOHLCVManifestError("canonical_snapshot_manifest_file_outside_snapshot")
+        if not csv_path.is_file():
+            raise CanonicalOHLCVManifestError(f"canonical_snapshot_file_missing:{csv_path}")
+        identities.add(identity)
+        resolved.append(csv_path)
+    return tuple(sorted(resolved, key=lambda item: str(item).lower()))
 
 
 def render_canonical_ohlcv_report(snapshot: CanonicalOHLCVSnapshot) -> str:

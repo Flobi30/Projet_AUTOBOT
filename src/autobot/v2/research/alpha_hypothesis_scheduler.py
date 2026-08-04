@@ -369,6 +369,10 @@ class AlphaSchedulerConfig:
     # review, but cannot turn a research candidate into a shadow/paper/live
     # candidate by itself.
     derivatives_feature_snapshot_manifest: Path | None = None
+    # The daily collector keeps immutable snapshots below one canonical root.
+    # Bind scheduler readiness and any recommended runner command to this exact
+    # manifest instead of recursively mixing the complete archive.
+    canonical_snapshot_manifest: Path | None = None
     knowledge_base_path: Path = Path("docs/research/alpha_knowledge_base.json")
     templates_path: Path = Path("docs/research/strategy_templates.json")
     hypotheses_path: Path = Path("docs/research/alpha_hypotheses.json")
@@ -394,6 +398,7 @@ class AlphaSchedulerReport:
     generated_at: str
     state_db: str | None
     data_paths: tuple[str, ...]
+    canonical_snapshot_manifest: str | None
     capability_data_paths: tuple[str, ...]
     families: tuple[dict[str, Any], ...]
     templates: tuple[dict[str, Any], ...]
@@ -422,6 +427,7 @@ class AlphaSchedulerReport:
             "generated_at": self.generated_at,
             "state_db": self.state_db,
             "data_paths": list(self.data_paths),
+            "canonical_snapshot_manifest": self.canonical_snapshot_manifest,
             "capability_data_paths": list(self.capability_data_paths),
             "families": [dict(item) for item in self.families],
             "templates": [dict(item) for item in self.templates],
@@ -603,7 +609,8 @@ def build_alpha_hypothesis_scheduler_report(config: AlphaSchedulerConfig) -> Alp
     # The scheduler is a report-only planner. It must never initialize a
     # journal, create a SQLite sidecar, or otherwise mutate its memory input.
     memory = load_alpha_research_memory(config.memory_path, read_only=True)
-    readiness = scan_data_readiness(config.data_paths)
+    resolved_data_paths = _resolve_scheduler_data_paths(config)
+    readiness = scan_data_readiness(resolved_data_paths)
     capability_data_paths = config.capability_data_paths or config.data_paths
     capability_scan = build_data_capability_scan_report(
         run_id=f"{config.run_id}_capabilities",
@@ -641,6 +648,7 @@ def build_alpha_hypothesis_scheduler_report(config: AlphaSchedulerConfig) -> Alp
                 family_trial_count=family_counts.get(family_id, 0),
                 template_trial_count=template_counts.get(str(template["template_id"]), 0),
                 config=config,
+                data_paths=resolved_data_paths,
             )
         )
     ranked = tuple(sorted(candidates, key=lambda item: (-item.priority_score, item.template_id)))
@@ -659,7 +667,10 @@ def build_alpha_hypothesis_scheduler_report(config: AlphaSchedulerConfig) -> Alp
         run_id=config.run_id,
         generated_at=datetime.now(timezone.utc).isoformat(),
         state_db=str(config.state_db) if config.state_db else None,
-        data_paths=tuple(str(path) for path in config.data_paths),
+        data_paths=tuple(str(path) for path in resolved_data_paths),
+        canonical_snapshot_manifest=(
+            str(config.canonical_snapshot_manifest) if config.canonical_snapshot_manifest else None
+        ),
         capability_data_paths=tuple(str(path) for path in capability_data_paths),
         families=tuple(knowledge["families"]),
         templates=tuple(templates["templates"]),
@@ -1246,6 +1257,44 @@ def scan_data_readiness(data_paths: Sequence[Path]) -> DataReadiness:
     )
 
 
+def _resolve_scheduler_data_paths(config: AlphaSchedulerConfig) -> tuple[Path, ...]:
+    """Return only the manifested canonical files when a manifest is supplied."""
+
+    if config.canonical_snapshot_manifest is None:
+        return config.data_paths
+    from .canonical_ohlcv_store import (
+        CanonicalOHLCVManifestError,
+        resolve_canonical_ohlcv_snapshot_files,
+    )
+
+    try:
+        resolved = resolve_canonical_ohlcv_snapshot_files(config.canonical_snapshot_manifest)
+    except CanonicalOHLCVManifestError as exc:
+        raise AlphaSchedulerError(f"canonical scheduler input rejected: {exc}") from exc
+    if not config.data_paths:
+        return resolved
+    allowed_roots = tuple(path.resolve() for path in config.data_paths)
+    outside: list[Path] = []
+    for path in resolved:
+        candidate = path.resolve()
+        if not any(_is_relative_to(candidate, root) for root in allowed_roots):
+            outside.append(path)
+    if outside:
+        raise AlphaSchedulerError(
+            "canonical scheduler manifest files fall outside --data-paths: "
+            + ", ".join(str(path) for path in outside)
+        )
+    return resolved
+
+
+def _is_relative_to(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+    except ValueError:
+        return False
+    return True
+
+
 def _schedule_template(
     *,
     template: Mapping[str, Any],
@@ -1258,6 +1307,7 @@ def _schedule_template(
     family_trial_count: int,
     template_trial_count: int,
     config: AlphaSchedulerConfig,
+    data_paths: Sequence[Path],
 ) -> ScheduledHypothesis:
     template_id = str(template["template_id"])
     family_id = str(family["alpha_family_id"])
@@ -1307,7 +1357,7 @@ def _schedule_template(
     command = None
     if status in {"RUNNABLE_SMOKE", "RUNNABLE_WALK_FORWARD"}:
         mode = "smoke" if status == "RUNNABLE_SMOKE" else "walk_forward"
-        command = _runner_command(hypothesis_id, mode, config, template)
+        command = _runner_command(hypothesis_id, mode, config, template, data_paths=data_paths)
     return ScheduledHypothesis(
         hypothesis_id=hypothesis_id,
         alpha_family_id=family_id,
@@ -1646,6 +1696,8 @@ def _runner_command(
     mode: str,
     config: AlphaSchedulerConfig,
     template: Mapping[str, Any],
+    *,
+    data_paths: Sequence[Path],
 ) -> str:
     max_variants = min(config.max_variants, int(template["max_variants"]))
     max_symbols = min(config.max_symbols, int(template["max_symbols"]))
@@ -1655,7 +1707,7 @@ def _runner_command(
         f"--hypothesis-id {hypothesis_id} "
         f"--mode {mode} "
         f"--state-db {config.state_db or 'data/autobot_state.db'} "
-        f"--data-paths {','.join(str(path) for path in config.data_paths)} "
+        f"--data-paths {','.join(str(path) for path in data_paths)} "
         f"--output-dir {config.output_dir} "
         f"--max-variants {max_variants} "
         f"--max-symbols {max_symbols} "

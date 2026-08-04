@@ -29,6 +29,9 @@ def test_daily_research_service_runs_read_only_capability_and_scheduler_reports_
     assert "autobot-research-scheduler-${RUN_ID}" in scheduler_section
     assert "--no-memory-backfill" in script
     assert "--data-paths data/research/canonical/ohlcv" in script
+    assert "CANONICAL_OHLCV_MANIFEST=" in script
+    assert "--canonical-snapshot-manifest" in script
+    assert "CANONICAL_SNAPSHOT_SCHEDULER_ARGS" in script
     assert "--capability-data-paths data/research/canonical/ohlcv,data/research/manifests" in script
     assert 'DERIVATIVES_FORWARD_FEATURE_MANIFEST=""' in script
     assert "derivatives_forward_*_derivatives_feature_snapshot.json" in script

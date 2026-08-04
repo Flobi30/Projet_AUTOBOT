@@ -9,10 +9,12 @@ import pytest
 
 from autobot.v2.cli import _build_parser
 from autobot.v2.research.canonical_ohlcv_store import (
+    CanonicalOHLCVManifestError,
     CanonicalOHLCVConfig,
     adapt_legacy_canonical_row,
     build_canonical_ohlcv_snapshot,
     classify_snapshot_significance,
+    resolve_canonical_ohlcv_snapshot_files,
     verify_canonical_raw_source_provenance,
 )
 
@@ -53,6 +55,39 @@ def test_canonical_ohlcv_snapshot_dedupes_sorts_and_uses_utc(tmp_path):
     }
     assert Path(str(snapshot.manifest_path)).exists()
     assert verify_canonical_raw_source_provenance(snapshot) is True
+
+
+def test_canonical_manifest_resolves_only_its_declared_snapshot_files(tmp_path):
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    source = raw / "BTCZEUR_5m.csv"
+    _write_rows(source, "BTCZEUR", "5m", [datetime(2026, 1, 1, tzinfo=timezone.utc)])
+    snapshot = build_canonical_ohlcv_snapshot(
+        CanonicalOHLCVConfig(
+            run_id="pytest_manifest_binding",
+            raw_paths=(raw,),
+            output_dir=tmp_path / "canonical" / "ohlcv",
+            manifest_dir=tmp_path / "manifests",
+            quarantine_dir=tmp_path / "quarantine",
+        )
+    )
+
+    assert snapshot.manifest_path
+    assert resolve_canonical_ohlcv_snapshot_files(snapshot.manifest_path) == (
+        Path(snapshot.files[0].csv_path),
+    )
+
+    malformed = json.loads(Path(snapshot.manifest_path).read_text(encoding="utf-8"))
+    malformed["files"][0]["csv_path"] = str(tmp_path / "outside_snapshot.csv")
+    malformed_path = tmp_path / "malformed_manifest.json"
+    malformed_path.write_text(json.dumps(malformed), encoding="utf-8")
+    with pytest.raises(CanonicalOHLCVManifestError, match="outside_snapshot"):
+        resolve_canonical_ohlcv_snapshot_files(malformed_path)
+
+    malformed["schema_version"] = "not-a-version"
+    malformed_path.write_text(json.dumps(malformed), encoding="utf-8")
+    with pytest.raises(CanonicalOHLCVManifestError, match="schema_unsupported"):
+        resolve_canonical_ohlcv_snapshot_files(malformed_path)
 
 
 def test_canonical_snapshot_detects_raw_source_mutation_after_materialization(tmp_path):

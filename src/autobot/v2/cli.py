@@ -633,6 +633,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Optional research roots used only to scan available capabilities; runner market-data paths remain --data-paths.",
     )
     alpha_hypothesis_scheduler.add_argument(
+        "--canonical-snapshot-manifest",
+        default=None,
+        help="Optional canonical OHLCV manifest that binds scheduler data to one immutable snapshot.",
+    )
+    alpha_hypothesis_scheduler.add_argument(
         "--derivatives-feature-snapshot-manifest",
         default=None,
         help="Optional forward-capture derivatives evidence for scheduler observability only; it cannot authorize execution.",
@@ -3484,6 +3489,9 @@ def _cmd_alpha_hypothesis_scheduler(args: argparse.Namespace) -> int:
                 tuple(Path(path) for path in _csv_tuple(args.capability_data_paths, "--capability-data-paths"))
                 if args.capability_data_paths
                 else None
+            ),
+            canonical_snapshot_manifest=(
+                Path(args.canonical_snapshot_manifest) if args.canonical_snapshot_manifest else None
             ),
             derivatives_feature_snapshot_manifest=(
                 Path(args.derivatives_feature_snapshot_manifest)

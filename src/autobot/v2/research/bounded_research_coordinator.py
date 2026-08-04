@@ -199,13 +199,29 @@ def run_bounded_research_coordinator(
         )
 
     registry = ExperimentRegistry(config.experiment_registry_path)
-    state = registry.register_experiment(spec)
     common = {
         "selected_hypothesis_id": selected.hypothesis_id,
         "selected_template_id": selected.template_id,
         "feature_snapshot": provenance.to_dict(),
-        "experiment_registry_state": state.to_dict(),
     }
+    # Claim the point-in-time feature evidence before registering or inspecting
+    # the material experiment. A feature snapshot authorizes at most one
+    # unattended smoke attempt, even when its first attempt reached a terminal
+    # rejection. This makes the snapshot-level idempotency gate deterministic
+    # and prevents a later status lookup from disguising a duplicate attempt.
+    if not registry.claim_bounded_research_snapshot(
+        feature_snapshot_id=provenance.feature_snapshot_id,
+        feature_snapshot_fingerprint=provenance.feature_snapshot_fingerprint,
+        coordinator_run_id=config.run_id,
+    ):
+        return replace(
+            base,
+            decision="SKIPPED_FEATURE_SNAPSHOT_ALREADY_CLAIMED",
+            reasons=("feature_snapshot_already_has_bounded_research_attempt", "new_snapshot_required"),
+            **common,
+        )
+    state = registry.register_experiment(spec)
+    common["experiment_registry_state"] = state.to_dict()
     if state.terminal:
         return replace(
             base,
@@ -218,17 +234,6 @@ def run_bounded_research_coordinator(
             base,
             decision="SKIPPED_MATERIAL_EXPERIMENT_ALREADY_ADVANCED",
             reasons=("material_fingerprint_already_has_gate_evidence", "new_data_thesis_or_template_required"),
-            **common,
-        )
-    if not registry.claim_bounded_research_snapshot(
-        feature_snapshot_id=provenance.feature_snapshot_id,
-        feature_snapshot_fingerprint=provenance.feature_snapshot_fingerprint,
-        coordinator_run_id=config.run_id,
-    ):
-        return replace(
-            base,
-            decision="SKIPPED_FEATURE_SNAPSHOT_ALREADY_CLAIMED",
-            reasons=("feature_snapshot_already_has_bounded_research_attempt", "new_snapshot_required"),
             **common,
         )
     if not registry.claim_bounded_research_execution(

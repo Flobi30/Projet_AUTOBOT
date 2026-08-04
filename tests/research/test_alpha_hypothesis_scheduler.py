@@ -444,6 +444,8 @@ def test_scheduler_cli_is_registered():
             "data/autobot_state.db",
             "--data-paths",
             "data/research/daily/ohlcv",
+            "--canonical-snapshot-manifest",
+            "data/research/manifests/current_canonical_ohlcv.json",
             "--capability-data-paths",
             "data/research/daily/ohlcv,data/research/manifests",
             "--derivatives-feature-snapshot-manifest",
@@ -455,6 +457,7 @@ def test_scheduler_cli_is_registered():
     assert args.max_variants == 5
     assert args.max_symbols == 6
     assert args.capability_data_paths == "data/research/daily/ohlcv,data/research/manifests"
+    assert args.canonical_snapshot_manifest == "data/research/manifests/current_canonical_ohlcv.json"
     assert args.derivatives_feature_snapshot_manifest == "data/research/manifests/derivatives_forward.json"
 
 
@@ -542,6 +545,96 @@ def test_data_readiness_detects_ohlcv_symbols_and_timeframes(tmp_path):
     assert readiness.has_15m is True
     assert readiness.has_1h is True
     assert set(readiness.symbols) == {"ADAEUR", "BCHEUR"}
+
+
+def test_scheduler_binds_readiness_to_one_canonical_manifest_not_archive_order(tmp_path):
+    archive = tmp_path / "canonical" / "ohlcv"
+    older = archive / "ohlcv_v2_older"
+    current = archive / "ohlcv_v2_current"
+    older.mkdir(parents=True)
+    current.mkdir()
+    old_start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    current_start = datetime(2026, 2, 1, tzinfo=timezone.utc)
+    for symbol in ("ADAEUR", "BCHEUR"):
+        _write_rows(older / f"{symbol}_1h.csv", symbol, "1h", old_start, 20, timedelta(hours=1))
+        _write_rows(current / f"{symbol}_1h.csv", symbol, "1h", current_start, 20, timedelta(hours=1))
+    manifest = tmp_path / "current_canonical_manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "snapshot_id": current.name,
+                "fingerprint": "current-fingerprint",
+                "files": [
+                    {
+                        "csv_path": str(current / f"{symbol}_1h.csv"),
+                        "exchange": "kraken",
+                        "market_type": "spot",
+                        "symbol": symbol,
+                        "timeframe": "1h",
+                    }
+                    for symbol in ("ADAEUR", "BCHEUR")
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_alpha_hypothesis_scheduler_report(
+        AlphaSchedulerConfig(
+            run_id="pytest_canonical_manifest_binding",
+            state_db=None,
+            data_paths=(archive,),
+            canonical_snapshot_manifest=manifest,
+            memory_path=tmp_path / "memory.json",
+        )
+    )
+
+    assert report.canonical_snapshot_manifest == str(manifest)
+    assert report.data_readiness["start_at"] == current_start.isoformat()
+    assert report.data_readiness["row_count"] == 40
+    assert report.data_readiness["duplicate_count"] == 0
+    assert all(current.name in path for path in report.data_paths)
+
+
+def test_scheduler_rejects_manifest_file_outside_declared_data_root(tmp_path):
+    archive = tmp_path / "canonical" / "ohlcv"
+    archive.mkdir(parents=True)
+    outside = tmp_path / "outside" / "ohlcv_v2_external"
+    outside.mkdir(parents=True)
+    source = outside / "ADAEUR_1h.csv"
+    _write_rows(source, "ADAEUR", "1h", datetime(2026, 2, 1, tzinfo=timezone.utc), 20, timedelta(hours=1))
+    manifest = tmp_path / "external_canonical_manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "snapshot_id": outside.name,
+                "fingerprint": "external-fingerprint",
+                "files": [
+                    {
+                        "csv_path": str(source),
+                        "exchange": "kraken",
+                        "market_type": "spot",
+                        "symbol": "ADAEUR",
+                        "timeframe": "1h",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(AlphaSchedulerError, match="fall outside --data-paths"):
+        build_alpha_hypothesis_scheduler_report(
+            AlphaSchedulerConfig(
+                run_id="pytest_canonical_manifest_outside_root",
+                state_db=None,
+                data_paths=(archive,),
+                canonical_snapshot_manifest=manifest,
+                memory_path=tmp_path / "memory.json",
+            )
+        )
 
 
 def test_scheduler_explains_capability_blockers_without_relaunching_rejected(tmp_path):
