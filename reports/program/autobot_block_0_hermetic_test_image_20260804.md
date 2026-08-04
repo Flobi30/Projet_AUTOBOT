@@ -2,7 +2,7 @@
 
 ## Decision
 
-`GO_VPS_CONTAINER_VALIDATION_PENDING`
+`GO_BLOCK_0_COMPLETE`
 
 ## Scope
 
@@ -38,7 +38,7 @@ data, secrets, network access and the running AUTOBOT container.
 - No production image, runtime database, paper capital, live flag, promotion,
   sizing, leverage or order path is changed by this block.
 
-## Remaining validation
+## VPS validation history
 
 Completed on the VPS at source commit `c0481404e328cdbcb079d336dfd6badc659a2598`:
 
@@ -54,3 +54,22 @@ The previously failed collection was a deliberate provenance fail-closed after
 the source checkout advanced before the runtime image was rebuilt. It did not
 write orders or runtime state, and the successful scheduled run proves the
 normal research-only collection path is restored.
+
+## Final exact-commit validation
+
+Completed on the VPS at source commit
+`a7ad6027a962e3dfc216ddcbad3d3d4ab88482f4`:
+
+- rebuilt `Dockerfile.test` from that exact source revision;
+- ran the complete suite with `--network none`, no runtime volume,
+  `0.50` CPU, `1 GiB` RAM and `256` PID maximum;
+- result: `2128 passed, 5 deselected in 155.26s`;
+- verified the production `autobot-v2` container remains `healthy` with
+  `PAPER_TRADING=false`, `LIVE_TRADING_CONFIRMATION=false`,
+  `STRATEGY_ROUTER_LIVE_ENABLED=false`,
+  `COLONY_AUTO_LIVE_PROMOTION=false` and
+  `AUTOBOT_OBSERVATION_ONLY_RUNTIME=true`.
+
+This closes the Block 0 hermetic-test gate. It is evidence of reproducible
+test collection and safety preservation only; it does not claim strategy
+profitability or authorize paper/live trading.
