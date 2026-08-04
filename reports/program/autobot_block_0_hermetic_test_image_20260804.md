@@ -40,6 +40,17 @@ data, secrets, network access and the running AUTOBOT container.
 
 ## Remaining validation
 
-Build and run the corrected image from the committed VPS revision, then verify
-the isolated full suite is green. The production service remains untouched;
-only its existing health/observation-only state is checked afterwards.
+Completed on the VPS at source commit `c0481404e328cdbcb079d336dfd6badc659a2598`:
+
+- corrected isolated image: `2127 passed, 5 deselected`;
+- test container: no network, no runtime mount, `0.50` CPU and `1 GiB` RAM;
+- controlled production rebuild: container healthy, WebSocket connected and
+  one observation-only instance;
+- paper, live, router-live and auto-promotion flags remain false;
+- the next scheduled public microstructure collection succeeded after image
+  provenance was aligned.
+
+The previously failed collection was a deliberate provenance fail-closed after
+the source checkout advanced before the runtime image was rebuilt. It did not
+write orders or runtime state, and the successful scheduled run proves the
+normal research-only collection path is restored.
