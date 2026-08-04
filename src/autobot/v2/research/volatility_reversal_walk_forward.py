@@ -16,7 +16,16 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .alpha_hypothesis_lab import RESEARCH_ONLY_CAPITAL_FLAGS
-from .generic_cross_sectional_ohlcv_adapter import CrossSectionalMetrics, CrossSectionalTrade
+from .generic_cross_sectional_ohlcv_adapter import (
+    CrossSectionalMetrics,
+    CrossSectionalTrade,
+    load_cross_sectional_bars,
+)
+from .oos_benchmarks import (
+    OOSBenchmarkReport,
+    evaluate_closed_oos_trade_benchmarks,
+    unavailable_oos_benchmark_report,
+)
 from .volatility_reversal_research_adapter import (
     ADAPTER_ID,
     VolatilityReversalResearchConfig,
@@ -24,6 +33,7 @@ from .volatility_reversal_research_adapter import (
     compute_volatility_reversal_metrics,
     run_volatility_reversal_research_smoke,
 )
+from .volatility_reversal_statistical_validation import volatility_reversal_trade_records
 
 
 @dataclass(frozen=True)
@@ -89,6 +99,7 @@ class VolatilityReversalWalkForwardReport:
     overall_oos: CrossSectionalMetrics
     folds: tuple[VolatilityReversalWalkForwardFold, ...]
     oos_trades: tuple[CrossSectionalTrade, ...]
+    oos_benchmarks: OOSBenchmarkReport
     diagnostics: Mapping[str, Any]
     elapsed_seconds: float
     safety: Mapping[str, bool] = field(default_factory=lambda: dict(RESEARCH_ONLY_CAPITAL_FLAGS))
@@ -106,6 +117,7 @@ class VolatilityReversalWalkForwardReport:
             "overall_oos": self.overall_oos.to_dict(),
             "folds": [fold.to_dict() for fold in self.folds],
             "oos_trades": [trade.to_dict() for trade in self.oos_trades],
+            "oos_benchmarks": self.oos_benchmarks.to_dict(),
             "diagnostics": dict(self.diagnostics),
             "elapsed_seconds": self.elapsed_seconds,
             "safety": dict(self.safety),
@@ -133,6 +145,7 @@ def build_volatility_reversal_walk_forward_report(
             overall=empty,
             folds=(),
             trades=(),
+            benchmarks=unavailable_oos_benchmark_report("volatility_reversal_inputs_unavailable"),
             diagnostics={"fixed_template_only": True, "simulation_not_run": True},
             started=started,
         )
@@ -146,6 +159,7 @@ def build_volatility_reversal_walk_forward_report(
             overall=empty,
             folds=(),
             trades=(),
+            benchmarks=unavailable_oos_benchmark_report("no_executable_volatility_reversal_trades_for_walk_forward"),
             diagnostics={"fixed_template_only": True, "simulation_not_run": True},
             started=started,
         )
@@ -175,11 +189,13 @@ def build_volatility_reversal_walk_forward_report(
         )
         oos_trades.extend(test.primary_trades)
     overall = _metrics(oos_trades)
+    benchmarks = _oos_benchmarks(config, tuple(oos_trades), baseline)
     decision, reasons = _decision(
         overall,
         folds,
         config.template,
         complete=len(folds) == len(windows),
+        benchmarks=benchmarks,
     )
     return _report(
         config,
@@ -189,6 +205,7 @@ def build_volatility_reversal_walk_forward_report(
         overall=overall,
         folds=tuple(folds),
         trades=tuple(oos_trades),
+        benchmarks=benchmarks,
         diagnostics={
             "fixed_template_only": True,
             "parameter_selection": "none; primary template order is immutable across folds",
@@ -199,6 +216,7 @@ def build_volatility_reversal_walk_forward_report(
             "fold_count_requested": config.folds,
             "fold_count_completed": len(folds),
             "test_windows_non_overlapping": True,
+            "oos_benchmark_status": benchmarks.status,
         },
         started=started,
     )
@@ -268,12 +286,38 @@ def _metrics(trades: list[CrossSectionalTrade]) -> CrossSectionalMetrics:
     return compute_volatility_reversal_metrics(trades)
 
 
+def _oos_benchmarks(
+    config: VolatilityReversalWalkForwardConfig,
+    trades: tuple[CrossSectionalTrade, ...],
+    baseline: VolatilityReversalSmokeResult,
+) -> OOSBenchmarkReport:
+    """Compute OOS-only references without adding an execution path."""
+
+    if not trades:
+        return unavailable_oos_benchmark_report("closed_oos_trades_missing")
+    timeframe = str(baseline.availability.selected_timeframe or "").strip()
+    if not timeframe:
+        return unavailable_oos_benchmark_report("volatility_reversal_oos_timeframe_missing")
+    try:
+        records = volatility_reversal_trade_records(trades, run_id=f"{config.run_id}_oos_benchmark")
+    except ValueError as exc:
+        return unavailable_oos_benchmark_report(f"volatility_reversal_oos_trade_evidence_invalid:{exc}")
+    bars, _ = load_cross_sectional_bars(config.data_paths, max_rows=config.max_data_rows)
+    return evaluate_closed_oos_trade_benchmarks(
+        records,
+        bars,
+        timeframe=timeframe,
+        seed_salt=f"volatility_reversal:{config.run_id}:{timeframe}",
+    )
+
+
 def _decision(
     metrics: CrossSectionalMetrics,
     folds: list[VolatilityReversalWalkForwardFold],
     template: Mapping[str, Any],
     *,
     complete: bool,
+    benchmarks: OOSBenchmarkReport,
 ) -> tuple[str, tuple[str, ...]]:
     if not complete:
         return "REJECTED", ("walk_forward_runtime_incomplete",)
@@ -294,6 +338,10 @@ def _decision(
     profitable_folds = sum(1 for fold in folds if fold.test_metrics.net_pnl_eur > 0.0)
     if profitable_folds < max(2, (len(folds) + 1) // 2):
         reasons.append("oos_profitable_folds_insufficient")
+    if benchmarks.status != "READY":
+        reasons.append("oos_benchmark_inputs_insufficient")
+    elif benchmarks.beats_all_baselines is not True:
+        reasons.append("oos_net_return_does_not_beat_required_baselines")
     if reasons:
         decision = "INSUFFICIENT_DATA" if metrics.trade_count < minimum else "REJECTED"
         return decision, tuple(reasons)
@@ -309,6 +357,7 @@ def _report(
     overall: CrossSectionalMetrics,
     folds: tuple[VolatilityReversalWalkForwardFold, ...],
     trades: tuple[CrossSectionalTrade, ...],
+    benchmarks: OOSBenchmarkReport,
     diagnostics: Mapping[str, Any],
     started: float,
 ) -> VolatilityReversalWalkForwardReport:
@@ -321,6 +370,7 @@ def _report(
         overall_oos=overall,
         folds=folds,
         oos_trades=trades,
+        oos_benchmarks=benchmarks,
         diagnostics=diagnostics,
         elapsed_seconds=round(time.perf_counter() - started, 6),
     )

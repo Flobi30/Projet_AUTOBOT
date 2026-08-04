@@ -41,6 +41,12 @@ def test_funding_basis_walk_forward_keeps_oos_trades_inside_non_overlapping_wind
     assert len(report.folds) == 3
     assert report.diagnostics["fixed_template_only"] is True
     assert report.diagnostics["test_windows_non_overlapping"] is True
+    assert report.oos_benchmarks.status == "READY"
+    assert {item.name for item in report.oos_benchmarks.baselines} == {
+        "no_trade",
+        "buy_and_hold_oos_window",
+        "placebo_same_frequency",
+    }
     for fold in report.folds:
         assert fold.train_end == fold.test_start
         assert fold.test_end > fold.test_start
@@ -184,6 +190,7 @@ def test_funding_basis_walk_forward_waiting_snapshot_never_simulates(tmp_path):
     assert report.decision == "INSUFFICIENT_DATA"
     assert report.folds == ()
     assert report.oos_trades == ()
+    assert report.oos_benchmarks.status == "INSUFFICIENT_DATA"
     assert report.diagnostics["simulation_not_run"] is True
     assert report.paper_capital_allowed is False
 
