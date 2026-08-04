@@ -135,7 +135,7 @@ def load_research_memory_records(path: str | Path) -> tuple[dict[str, Any], ...]
 
     memory_path = Path(path)
     if memory_path.suffix.lower() in {".db", ".sqlite", ".sqlite3"}:
-        return tuple(ResearchMemoryStore(memory_path).latest_records())
+        return tuple(ResearchMemoryStore(memory_path, read_only=True).latest_records())
     if not memory_path.exists():
         return ()
     payload = json.loads(memory_path.read_text(encoding="utf-8"))

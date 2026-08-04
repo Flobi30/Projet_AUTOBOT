@@ -114,6 +114,35 @@ def test_sqlite_memory_is_append_only_idempotent_and_keeps_latest_record(tmp_pat
     assert len(exported["records"]) == 1
 
 
+def test_sqlite_memory_read_only_reader_never_initializes_or_enables_wal(tmp_path):
+    path = tmp_path / "memory.sqlite3"
+    writer = ResearchMemoryStore(path)
+    writer.append(_record("read-only-run", variant_count=1).to_dict())
+
+    reader = ResearchMemoryStore(path, read_only=True)
+    assert reader.event_count() == 1
+    assert [record["run_id"] for record in reader.latest_records()] == ["read-only-run"]
+    with pytest.raises(PermissionError, match="read-only"):
+        reader.append(_record("blocked-write", variant_count=1).to_dict())
+
+    connection = reader._connect()
+    try:
+        with pytest.raises(sqlite3.OperationalError, match="readonly"):
+            connection.execute("CREATE TABLE read_only_guard (id INTEGER)")
+    finally:
+        connection.close()
+
+
+def test_scheduler_can_read_sqlite_memory_from_an_isolated_read_only_mount(tmp_path):
+    path = tmp_path / "memory.sqlite3"
+    ResearchMemoryStore(path).append(_record("isolated-reader", variant_count=2).to_dict())
+
+    loaded = load_alpha_research_memory(path, read_only=True)
+
+    assert [record.run_id for record in loaded.records] == ["isolated-reader"]
+    assert loaded.records[0].variant_count == 2
+
+
 def test_sqlite_memory_retries_a_temporary_lock_and_confirms_an_uncertain_append(tmp_path, monkeypatch):
     delays: list[float] = []
     store = ResearchMemoryStore(

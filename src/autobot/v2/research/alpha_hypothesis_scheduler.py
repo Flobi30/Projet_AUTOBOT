@@ -484,17 +484,22 @@ def load_strategy_templates(path: str | Path) -> dict[str, Any]:
     return payload
 
 
-def load_alpha_research_memory(path: str | Path) -> AlphaResearchMemory:
+def load_alpha_research_memory(path: str | Path, *, read_only: bool = False) -> AlphaResearchMemory:
+    """Load research memory without mutating it when used by an isolated reader."""
+
     memory_path = Path(path)
     if memory_path.suffix.lower() in {".db", ".sqlite", ".sqlite3"}:
-        store = ResearchMemoryStore(memory_path)
+        store = ResearchMemoryStore(memory_path, read_only=read_only)
         if (
             memory_path == DEFAULT_RESEARCH_MEMORY_PATH
             and not memory_path.exists()
             and VERSIONED_RESEARCH_MEMORY_SEED_PATH.exists()
         ):
             seed = load_alpha_research_memory(VERSIONED_RESEARCH_MEMORY_SEED_PATH)
-            store.append_many(record.to_dict() for record in seed.records)
+            if not read_only:
+                store.append_many(record.to_dict() for record in seed.records)
+            else:
+                return AlphaResearchMemory(memory_path, tuple(_with_running_counts(seed.records)))
         records = tuple(ResearchMemoryRecord.from_mapping(item) for item in store.latest_records())
         return AlphaResearchMemory(memory_path, tuple(_with_running_counts(records)))
     if not memory_path.exists():
@@ -595,7 +600,9 @@ def build_alpha_hypothesis_scheduler_report(config: AlphaSchedulerConfig) -> Alp
     knowledge = load_alpha_knowledge_base(config.knowledge_base_path)
     templates = load_strategy_templates(config.templates_path)
     hypotheses = load_alpha_hypotheses(config.hypotheses_path)
-    memory = load_alpha_research_memory(config.memory_path)
+    # The scheduler is a report-only planner. It must never initialize a
+    # journal, create a SQLite sidecar, or otherwise mutate its memory input.
+    memory = load_alpha_research_memory(config.memory_path, read_only=True)
     readiness = scan_data_readiness(config.data_paths)
     capability_data_paths = config.capability_data_paths or config.data_paths
     capability_scan = build_data_capability_scan_report(

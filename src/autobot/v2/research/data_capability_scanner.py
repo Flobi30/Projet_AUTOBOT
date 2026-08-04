@@ -1583,7 +1583,7 @@ def _load_memory(memory_path: str | Path) -> dict[str, Any]:
         try:
             from .alpha_hypothesis_scheduler import load_alpha_research_memory
 
-            memory = load_alpha_research_memory(path)
+            memory = load_alpha_research_memory(path, read_only=True)
             return {"records": [record.to_dict() for record in memory.records]}
         except (OSError, ValueError, sqlite3.Error):
             return {"records": []}

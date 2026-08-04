@@ -27,6 +27,7 @@ class ResearchMemoryStore:
         write_retries: int = 3,
         retry_base_delay_seconds: float = 0.05,
         sleeper: Callable[[float], None] = sleep,
+        read_only: bool = False,
     ) -> None:
         self.path = Path(path)
         if sqlite_timeout_seconds <= 0.0 or write_retries < 0 or retry_base_delay_seconds < 0.0:
@@ -36,8 +37,11 @@ class ResearchMemoryStore:
         self._write_retries = int(write_retries)
         self._retry_base_delay_seconds = float(retry_base_delay_seconds)
         self._sleeper = sleeper
+        self._read_only = bool(read_only)
 
     def append(self, record: Mapping[str, Any]) -> bool:
+        if self._read_only:
+            raise PermissionError("research memory store is read-only")
         payload = dict(record)
         self._validate_research_only(payload)
         run_id = str(payload.get("run_id") or "").strip()
@@ -74,7 +78,8 @@ class ResearchMemoryStore:
         if not self.path.exists():
             return []
         with self._connect() as connection:
-            self._initialize(connection)
+            if not self._read_only:
+                self._initialize(connection)
             rows = connection.execute(
                 """
                 SELECT event.record_json
@@ -93,7 +98,8 @@ class ResearchMemoryStore:
         if not self.path.exists():
             return 0
         with self._connect() as connection:
-            self._initialize(connection)
+            if not self._read_only:
+                self._initialize(connection)
             return int(connection.execute("SELECT COUNT(*) FROM research_memory_events").fetchone()[0])
 
     def export_latest(self, destination: str | Path) -> Path:
@@ -121,6 +127,16 @@ class ResearchMemoryStore:
         return target
 
     def _connect(self) -> sqlite3.Connection:
+        if self._read_only:
+            if not self.path.is_file():
+                raise FileNotFoundError(f"research memory SQLite database is unavailable: {self.path}")
+            connection = sqlite3.connect(
+                f"{self.path.resolve().as_uri()}?mode=ro",
+                uri=True,
+                timeout=self._sqlite_timeout_seconds,
+            )
+            connection.execute(f"PRAGMA busy_timeout = {self._busy_timeout_ms}")
+            return connection
         connection = sqlite3.connect(self.path, timeout=self._sqlite_timeout_seconds)
         connection.execute("PRAGMA journal_mode = WAL")
         connection.execute(f"PRAGMA busy_timeout = {self._busy_timeout_ms}")
