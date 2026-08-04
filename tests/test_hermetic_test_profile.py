@@ -25,6 +25,20 @@ def test_container_test_command_reuses_default_hermetic_pytest_profile():
     assert "-m\", \"unit" not in dockerfile
 
 
+def test_container_test_image_includes_the_audited_source_assets():
+    root = Path(__file__).resolve().parents[1]
+    dockerfile = (root / "Dockerfile.test").read_text(encoding="utf-8")
+
+    for required_copy in (
+        "COPY Dockerfile Dockerfile.test docker-compose.yml .env.example AGENTS.md /app/",
+        "COPY docs/ /app/docs/",
+        "COPY deploy/ /app/deploy/",
+        "COPY tools/ /app/tools/",
+        "COPY test_preflight.py paper_trading_fix.py setup-vps.sh /app/",
+    ):
+        assert required_copy in dockerfile
+
+
 def test_agents_document_public_collection_as_a_separate_network_exception():
     root = Path(__file__).resolve().parents[1]
     agents = (root / "AGENTS.md").read_text(encoding="utf-8")

@@ -363,6 +363,7 @@ class TestConcurrentProducerConsumer:
 # ===========================================================================
 
 
+@pytest.mark.performance
 class TestPerformanceBenchmark:
     def test_put_nowait_throughput(self) -> None:
         """
