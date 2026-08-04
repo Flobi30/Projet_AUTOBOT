@@ -11,7 +11,7 @@ COPY conftest.py pytest.ini /app/
 # Keep the test image a complete, hermetic source checkout for tests that
 # deliberately audit deployment and operator assets. Runtime data, secrets and
 # mutable reports are still excluded by .dockerignore.
-COPY Dockerfile Dockerfile.test docker-compose.yml .env.example AGENTS.md /app/
+COPY Dockerfile Dockerfile.test docker-compose.yml .env.example AGENTS.md README.md /app/
 COPY docs/ /app/docs/
 COPY deploy/ /app/deploy/
 COPY tools/ /app/tools/

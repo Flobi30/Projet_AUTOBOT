@@ -30,7 +30,7 @@ def test_container_test_image_includes_the_audited_source_assets():
     dockerfile = (root / "Dockerfile.test").read_text(encoding="utf-8")
 
     for required_copy in (
-        "COPY Dockerfile Dockerfile.test docker-compose.yml .env.example AGENTS.md /app/",
+        "COPY Dockerfile Dockerfile.test docker-compose.yml .env.example AGENTS.md README.md /app/",
         "COPY docs/ /app/docs/",
         "COPY deploy/ /app/deploy/",
         "COPY tools/ /app/tools/",

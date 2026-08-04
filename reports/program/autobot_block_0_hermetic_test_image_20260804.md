@@ -16,7 +16,8 @@ data, secrets, network access and the running AUTOBOT container.
   retired-operator assets to `Dockerfile.test`.
 - Kept mutable runtime data, databases, logs, secrets and reports excluded by
   `.dockerignore`.
-- Marked the queue throughput benchmark as `performance`, so it is excluded by
+- Marked queue and dispatcher throughput benchmarks as `performance`, so they
+  are excluded by
   the documented hermetic test profile rather than acting as a functional test
   on a resource-capped test container.
 - Added a contract test that fails if a future test image omits the audited
@@ -24,11 +25,11 @@ data, secrets, network access and the running AUTOBOT container.
 
 ## Evidence
 
-- Targeted test-image and deployment safety suite: `52 passed, 2 deselected`.
-- Full local hermetic suite: `2122 passed, 6 skipped, 4 deselected`.
+- Targeted test-image and deployment safety suite: `73 passed, 3 deselected`.
+- Full local hermetic suite: `2121 passed, 6 skipped, 5 deselected`.
 - The initial VPS test-image run surfaced only missing-source-image assets and
-  one unmarked performance benchmark; no AUTOBOT runtime behavior was tested
-  or changed.
+  unmarked performance benchmarks; these image/profile defects are corrected.
+  No AUTOBOT runtime behavior was tested or changed.
 
 ## Safety
 

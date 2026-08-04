@@ -612,6 +612,7 @@ class TestEndToEnd:
 # Performance (smoke)
 # ===========================================================================
 
+@pytest.mark.performance
 class TestDispatchPerformance:
     def test_put_nowait_throughput(self) -> None:
         """
