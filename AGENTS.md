@@ -43,6 +43,19 @@ python -m compileall -q src tools
 git diff --check
 ```
 
+When Docker is available, the dedicated hermetic image is the reproducible
+environment for the complete suite. It has no runtime-data or secret mount and
+must run without network access:
+
+```bash
+docker build --pull=false --tag autobot-test:local -f Dockerfile.test .
+docker run --rm --network none --cpus 0.50 --memory 1g --pids-limit 256 autobot-test:local
+```
+
+Do not treat a missing dependency in a global Python installation as a project
+test failure; use the locked test image or install `requirements/tests.txt` in
+an isolated local environment instead.
+
 For VPS validation, deploy only with `bash deploy/rebuild-autobot-image.sh`,
 then confirm the image revision, `/health`, the observation-only flags and
 the absence of private execution credentials. Analyses that consume existing

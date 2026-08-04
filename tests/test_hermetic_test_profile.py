@@ -45,3 +45,12 @@ def test_agents_document_public_collection_as_a_separate_network_exception():
 
     assert "Public-data collectors are the explicit exception" in agents
     assert "public endpoints" in agents
+
+
+def test_agents_document_the_locked_hermetic_test_image_command():
+    root = Path(__file__).resolve().parents[1]
+    agents = (root / "AGENTS.md").read_text(encoding="utf-8")
+
+    assert "Dockerfile.test" in agents
+    assert "--network none" in agents
+    assert "requirements/tests.txt" in agents
