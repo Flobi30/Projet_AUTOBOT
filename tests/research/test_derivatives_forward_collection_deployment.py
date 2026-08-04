@@ -30,6 +30,8 @@ def test_derivatives_timer_is_bounded_public_research_only():
     assert "funding_refresh" in script
     assert "open_interest_refresh" in script
     assert "future_basis_refresh" in script
+    assert "open_interest_refresh|future_basis_refresh|analytics_refresh)" in script
+    assert "the winning bounded job refreshes" in script
     assert "--collect-open-interest-history" in script
     assert "--open-interest-backfill-start-at" in script
     assert "--open-interest-backfill-end-at" in script
@@ -65,3 +67,18 @@ def test_derivatives_timer_is_bounded_public_research_only():
     assert "NoNewPrivileges=true" in future_basis_service
     assert "OnCalendar=hourly" in future_basis_timer
     assert "Persistent=true" in future_basis_timer
+
+
+def test_hourly_derivatives_analytics_modes_coalesce_both_history_inputs():
+    script = (ROOT / "deploy/systemd/run-autobot-research-derivatives-collection.sh").read_text(encoding="utf-8")
+    analytics_case = script.split("open_interest_refresh|future_basis_refresh|analytics_refresh)", 1)[1].split(";;", 1)[0]
+
+    for required_flag in (
+        "--collect-open-interest-history",
+        "--open-interest-backfill-start-at",
+        "--open-interest-backfill-end-at",
+        "--collect-future-basis-history",
+        "--future-basis-backfill-start-at",
+        "--future-basis-backfill-end-at",
+    ):
+        assert required_flag in analytics_case

@@ -1,5 +1,5 @@
 [Unit]
-Description=AUTOBOT public derivatives open-interest research refresh
+Description=AUTOBOT public derivatives analytics research refresh (open interest and future basis)
 Documentation=file:///opt/Projet_AUTOBOT/src/autobot/v2/research/kraken_futures_derivatives_collector.py
 Wants=network-online.target
 After=network-online.target docker.service

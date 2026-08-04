@@ -43,33 +43,25 @@ case "${COLLECTION_MODE}" in
     # historical research data.
     COLLECTION_FLAGS=(--skip-tickers --skip-candles --forward-capture-max-lag-seconds 7200)
     ;;
-  open_interest_refresh)
-    # A deliberately small overlap absorbs scheduler jitter and is compacted
-    # deterministically. It remains an explicit historical query and cannot
-    # prove runtime feature parity by itself.
-    OI_END="$(date -u +%Y-%m-%dT%H:00:00+00:00)"
-    OI_START="$(date -u -d '3 hours ago' +%Y-%m-%dT%H:00:00+00:00)"
+  open_interest_refresh|future_basis_refresh|analytics_refresh)
+    # The open-interest and future-basis timers intentionally share one lock.
+    # Either timer may win scheduler jitter, so the winning bounded job refreshes
+    # both analytics histories.  This prevents one history from silently going
+    # stale merely because the companion job saw the lock and skipped.  The
+    # three-hour overlap is compacted deterministically and remains research
+    # data only; it cannot prove runtime parity or create an execution signal.
+    ANALYTICS_END="$(date -u +%Y-%m-%dT%H:00:00+00:00)"
+    ANALYTICS_START="$(date -u -d '3 hours ago' +%Y-%m-%dT%H:00:00+00:00)"
     COLLECTION_FLAGS=(
       --skip-funding --skip-tickers --skip-candles
       --collect-open-interest-history
-      --open-interest-backfill-start-at "${OI_START}"
-      --open-interest-backfill-end-at "${OI_END}"
+      --open-interest-backfill-start-at "${ANALYTICS_START}"
+      --open-interest-backfill-end-at "${ANALYTICS_END}"
       --open-interest-interval-seconds 3600
       --open-interest-max-pages-per-symbol 1
-      --forward-capture-max-lag-seconds 900
-    )
-    ;;
-  future_basis_refresh)
-    # A bounded overlap absorbs scheduler jitter.  These are exchange-provided
-    # same-contract buckets, collected outside the AUTOBOT runtime and never
-    # treated as an execution signal on their own.
-    BASIS_END="$(date -u +%Y-%m-%dT%H:00:00+00:00)"
-    BASIS_START="$(date -u -d '3 hours ago' +%Y-%m-%dT%H:00:00+00:00)"
-    COLLECTION_FLAGS=(
-      --skip-funding --skip-tickers --skip-candles
       --collect-future-basis-history
-      --future-basis-backfill-start-at "${BASIS_START}"
-      --future-basis-backfill-end-at "${BASIS_END}"
+      --future-basis-backfill-start-at "${ANALYTICS_START}"
+      --future-basis-backfill-end-at "${ANALYTICS_END}"
       --future-basis-interval-seconds 3600
       --future-basis-max-pages-per-symbol 1
       --forward-capture-max-lag-seconds 900
