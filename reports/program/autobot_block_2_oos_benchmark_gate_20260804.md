@@ -26,10 +26,9 @@ three explicit net references measured over the same bounded OOS evidence.
 - Focused OOS benchmark, funding/basis, volatility-reversal and runner suite:
   `29 passed`.
 - Direct contract suite after the final review change: `16 passed`.
-- The broader research and CLI suite was executed after the focused tests; no
-  failing test output was observed during collection and execution. Its final
-  aggregate result will be rechecked in the isolated VPS test image before
-  deployment.
+- Broader research and CLI suite: `881 passed, 1 skipped`.
+- VPS hermetic full suite: `2135 passed, 5 deselected` in an ephemeral Docker
+  container with network disabled and no host runtime mount.
 - `git diff --check`: passed (only repository line-ending notices).
 
 ## Residual limits
