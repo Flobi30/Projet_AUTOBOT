@@ -185,6 +185,12 @@ def test_walk_forward_keeps_closed_bar_reversal_trades_inside_non_overlapping_oo
     assert len(report.folds) == 3
     assert report.diagnostics["fixed_template_only"] is True
     assert report.diagnostics["test_windows_non_overlapping"] is True
+    assert report.oos_benchmarks.status == "READY"
+    assert {item.name for item in report.oos_benchmarks.baselines} == {
+        "no_trade",
+        "buy_and_hold_oos_window",
+        "placebo_same_frequency",
+    }
     for fold in report.folds:
         assert fold.train_end == fold.test_start
         assert fold.test_end > fold.test_start

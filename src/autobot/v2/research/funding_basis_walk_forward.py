@@ -23,7 +23,14 @@ from .funding_basis_research_adapter import (
     FundingBasisSmokeResult,
     FundingBasisTrade,
     compute_funding_basis_metrics,
+    funding_basis_trade_records,
     run_funding_basis_research_smoke,
+)
+from .generic_cross_sectional_ohlcv_adapter import load_cross_sectional_bars
+from .oos_benchmarks import (
+    OOSBenchmarkReport,
+    evaluate_closed_oos_trade_benchmarks,
+    unavailable_oos_benchmark_report,
 )
 
 
@@ -85,6 +92,7 @@ class FundingBasisWalkForwardReport:
     overall_oos: FundingBasisMetrics
     folds: tuple[FundingBasisWalkForwardFold, ...]
     oos_trades: tuple[FundingBasisTrade, ...]
+    oos_benchmarks: OOSBenchmarkReport
     diagnostics: Mapping[str, Any]
     elapsed_seconds: float
     safety: Mapping[str, bool] = field(default_factory=lambda: dict(RESEARCH_ONLY_CAPITAL_FLAGS))
@@ -102,6 +110,7 @@ class FundingBasisWalkForwardReport:
             "overall_oos": self.overall_oos.to_dict(),
             "folds": [fold.to_dict() for fold in self.folds],
             "oos_trades": [trade.to_dict() for trade in self.oos_trades],
+            "oos_benchmarks": self.oos_benchmarks.to_dict(),
             "diagnostics": dict(self.diagnostics),
             "elapsed_seconds": self.elapsed_seconds,
             "safety": dict(self.safety),
@@ -128,6 +137,7 @@ def build_funding_basis_walk_forward_report(
             overall=empty,
             folds=(),
             trades=(),
+            benchmarks=unavailable_oos_benchmark_report("funding_basis_inputs_unavailable"),
             diagnostics={"fixed_template_only": True, "simulation_not_run": True},
             started=started,
         )
@@ -141,6 +151,7 @@ def build_funding_basis_walk_forward_report(
             overall=empty,
             folds=(),
             trades=(),
+            benchmarks=unavailable_oos_benchmark_report("no_executable_funding_basis_trades_for_walk_forward"),
             diagnostics={"fixed_template_only": True, "simulation_not_run": True},
             started=started,
         )
@@ -166,7 +177,14 @@ def build_funding_basis_walk_forward_report(
         )
         oos_trades.extend(test.primary_trades)
     overall = _aggregate_metrics(oos_trades)
-    decision, reasons = _decision(overall, folds, config.template, complete=len(folds) == len(windows))
+    benchmarks = _oos_benchmarks(config, tuple(oos_trades), baseline)
+    decision, reasons = _decision(
+        overall,
+        folds,
+        config.template,
+        complete=len(folds) == len(windows),
+        benchmarks=benchmarks,
+    )
     return _report(
         config,
         decision=decision,
@@ -175,6 +193,7 @@ def build_funding_basis_walk_forward_report(
         overall=overall,
         folds=tuple(folds),
         trades=tuple(oos_trades),
+        benchmarks=benchmarks,
         diagnostics={
             "fixed_template_only": True,
             "parameter_selection": "none; bounded template order is immutable across folds",
@@ -182,6 +201,7 @@ def build_funding_basis_walk_forward_report(
             "fold_count_requested": config.folds,
             "fold_count_completed": len(folds),
             "test_windows_non_overlapping": True,
+            "oos_benchmark_status": benchmarks.status,
         },
         started=started,
     )
@@ -243,12 +263,34 @@ def _aggregate_metrics(trades: list[FundingBasisTrade]) -> FundingBasisMetrics:
     return compute_funding_basis_metrics(trades)
 
 
+def _oos_benchmarks(
+    config: FundingBasisWalkForwardConfig,
+    trades: tuple[FundingBasisTrade, ...],
+    baseline: FundingBasisSmokeResult,
+) -> OOSBenchmarkReport:
+    """Build transparent references only from the adapter's closed OOS bars."""
+
+    if not trades:
+        return unavailable_oos_benchmark_report("closed_oos_trades_missing")
+    timeframe = str(baseline.availability.selected_timeframe or "").strip()
+    if not timeframe:
+        return unavailable_oos_benchmark_report("funding_basis_oos_timeframe_missing")
+    bars, _ = load_cross_sectional_bars(config.spot_data_paths, max_rows=config.max_data_rows)
+    return evaluate_closed_oos_trade_benchmarks(
+        funding_basis_trade_records(trades, run_id=f"{config.run_id}_oos_benchmark"),
+        bars,
+        timeframe=timeframe,
+        seed_salt=f"funding_basis:{config.run_id}:{timeframe}",
+    )
+
+
 def _decision(
     metrics: FundingBasisMetrics,
     folds: list[FundingBasisWalkForwardFold],
     template: Mapping[str, Any],
     *,
     complete: bool,
+    benchmarks: OOSBenchmarkReport,
 ) -> tuple[str, tuple[str, ...]]:
     reasons: list[str] = []
     minimum = int(template.get("minimum_sample_size") or 30)
@@ -269,6 +311,10 @@ def _decision(
     profitable_folds = sum(1 for fold in folds if fold.test_metrics.net_pnl_eur > 0.0)
     if folds and profitable_folds < max(2, (len(folds) + 1) // 2):
         reasons.append("oos_profitable_folds_insufficient")
+    if benchmarks.status != "READY":
+        reasons.append("oos_benchmark_inputs_insufficient")
+    elif benchmarks.beats_all_baselines is not True:
+        reasons.append("oos_net_return_does_not_beat_required_baselines")
     if reasons:
         return ("REJECTED" if metrics.trade_count else "INSUFFICIENT_DATA", tuple(reasons))
     return ("KEEP_RESEARCH", ("oos_net_cost_walk_forward_passed; stress_gate_still_required",))
@@ -283,6 +329,7 @@ def _report(
     overall: FundingBasisMetrics,
     folds: tuple[FundingBasisWalkForwardFold, ...],
     trades: tuple[FundingBasisTrade, ...],
+    benchmarks: OOSBenchmarkReport,
     diagnostics: Mapping[str, Any],
     started: float,
 ) -> FundingBasisWalkForwardReport:
@@ -295,6 +342,7 @@ def _report(
         overall_oos=overall,
         folds=folds,
         oos_trades=trades,
+        oos_benchmarks=benchmarks,
         diagnostics=diagnostics,
         elapsed_seconds=round(time.perf_counter() - started, 6),
     )
